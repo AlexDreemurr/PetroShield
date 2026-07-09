@@ -30,12 +30,13 @@ const Wrapper = styled.div`
 const IconWrapper = styled.div`
   display: flex;
   align-items: center;
-  padding: 5px 10px;
+  padding: 8px 10px 8px 14px;
 `;
 const TitleWrapper = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
+  margin-right: 60px;
 `;
 const Title = styled.p`
   font-size: ${14 / 16}rem;
