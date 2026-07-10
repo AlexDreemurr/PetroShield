@@ -25,6 +25,12 @@ import {
   Siren,
   House,
   UsersRound,
+  Bell,
+  Mail,
+  CircleQuestionMark,
+  Search,
+  ChevronDown,
+  Menu,
 } from "lucide-react";
 
 const icons = {
@@ -37,6 +43,12 @@ const icons = {
   Siren,
   House,
   UsersRound,
+  Bell,
+  Mail,
+  CircleQuestionMark,
+  Search,
+  ChevronDown,
+  Menu,
 };
 
 const Icon = ({ id, color, size, strokeWidth, fillColor, ...delegated }) => {

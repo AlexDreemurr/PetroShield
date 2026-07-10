@@ -1,7 +1,7 @@
 import React from "react";
 
-function StatisticsAnalysis() {
-  return <div>统计分析</div>;
+function StatisticsAnalysis({ title = "统计分析" }) {
+  return <div>{title}</div>;
 }
 
 export default StatisticsAnalysis;

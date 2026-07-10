@@ -28,6 +28,10 @@ const ContentWrapper = styled.div`
   flex: 1;
   min-height: 0;
   display: flex;
+  height: 100%;
 `;
-const Main = styled.main``;
+const Main = styled.main`
+  flex: 1;
+  height: 100%;
+`;
 export default MainLayout;

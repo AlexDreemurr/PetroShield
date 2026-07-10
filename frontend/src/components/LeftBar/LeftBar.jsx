@@ -1,5 +1,5 @@
-import React from "react";
-import { NavLink } from "react-router";
+import React, { useState } from "react";
+import { NavLink, useLocation } from "react-router";
 import Icon from "../Icon/Icon";
 import styled from "styled-components";
 import { COLORS } from "../../constants/STYLES";
@@ -11,44 +11,215 @@ const navItems = [
   { to: "/device-management", icon: "Cpu", label: "设备管理" },
   { to: "/risk-control", icon: "ShieldAlert", label: "风险管控" },
   { to: "/video-ai", icon: "Cctv", label: "视频AI" },
-  { to: "/statistics-analysis", icon: "ChartColumn", label: "统计分析" },
-  { to: "/system-management", icon: "Settings", label: "系统管理" },
+  {
+    icon: "ChartColumn",
+    label: "统计分析",
+    path: "/statistics-analysis",
+    children: [
+      { to: "/statistics-analysis/risk-overview", label: "风险态势总览" },
+      { to: "/statistics-analysis/risk-events", label: "风险事件追溯" },
+      { to: "/statistics-analysis/alarm-stats", label: "告警统计分析" },
+      { to: "/statistics-analysis/person-tracks", label: "人员轨迹分析" },
+      { to: "/statistics-analysis/device-stats", label: "设备统计分析" },
+    ],
+  },
+  {
+    icon: "Settings",
+    label: "系统管理",
+    path: "/system-management",
+    children: [{ to: "/system-management/user-settings", label: "用户设置" }],
+  },
 ];
 
 function LeftBar() {
+  const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [openGroups, setOpenGroups] = useState(() => ({
+    "/statistics-analysis": location.pathname.startsWith(
+      "/statistics-analysis"
+    ),
+    "/system-management": location.pathname.startsWith("/system-management"),
+  }));
+
+  const toggleGroup = (path) => {
+    if (isCollapsed) return;
+
+    setOpenGroups((current) => ({
+      ...current,
+      [path]: !current[path],
+    }));
+  };
+
   return (
-    <Wrapper>
-      {navItems.map(({ to, icon, label }) => (
-        <LinkWrapper key={to} to={to}>
-          <Icon id={icon} size={18} />
-          <Word>{label}</Word>
-        </LinkWrapper>
-      ))}
+    <Wrapper $isCollapsed={isCollapsed}>
+      {navItems.map((item) => {
+        if (item.children) {
+          const isOpen = openGroups[item.path];
+
+          return (
+            <DrawerGroup key={item.path}>
+              <DrawerTrigger
+                type="button"
+                title={item.label}
+                $isOpen={isOpen}
+                $isCollapsed={isCollapsed}
+                onClick={() => toggleGroup(item.path)}
+              >
+                <Icon id={item.icon} size={18} />
+                {!isCollapsed && (
+                  <>
+                    <Word>{item.label}</Word>
+                    <ChevronIcon $isOpen={isOpen}>
+                      <Icon id="ChevronDown" size={15} strokeWidth={2} />
+                    </ChevronIcon>
+                  </>
+                )}
+              </DrawerTrigger>
+
+              {!isCollapsed && isOpen && (
+                <DrawerPanel>
+                  {item.children.map((child) => (
+                    <SubLink key={child.to} to={child.to} end>
+                      {child.label}
+                    </SubLink>
+                  ))}
+                </DrawerPanel>
+              )}
+            </DrawerGroup>
+          );
+        }
+
+        return (
+          <LinkWrapper
+            key={item.to}
+            to={item.to}
+            end={item.to === "/"}
+            title={item.label}
+            $isCollapsed={isCollapsed}
+          >
+            <Icon id={item.icon} size={18} />
+            {!isCollapsed && <Word>{item.label}</Word>}
+          </LinkWrapper>
+        );
+      })}
+
+      <MenuOpener
+        type="button"
+        title={isCollapsed ? "展开菜单" : "收起菜单"}
+        $isCollapsed={isCollapsed}
+        onClick={() => setIsCollapsed((current) => !current)}
+      >
+        <Icon id="Menu" size={18} />
+        {!isCollapsed && <Word>收起菜单</Word>}
+      </MenuOpener>
     </Wrapper>
   );
 }
 
 const Wrapper = styled.div`
-  width: 10rem;
+  width: ${(p) => (p.$isCollapsed ? "4rem" : "10rem")};
   padding: 16px 8px 0 8px;
+  margin-bottom: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   border-right: 1px ${COLORS.gray90} solid;
+  transition: width 180ms ease;
 `;
-const Word = styled.p``;
-const LinkWrapper = styled(NavLink)`
+
+const Word = styled.p`
+  white-space: nowrap;
+`;
+
+const itemStyles = `
+  width: 100%;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
   padding: 8px 8px 8px 12px;
   border-radius: 4px;
-  &:hover {
-    background-color: ${COLORS.blue};
-    color: white;
-  }
   color: inherit;
   font-size: ${13 / 16}rem;
   text-decoration: none;
 `;
+
+const collapsedItemStyles = `
+  justify-content: center;
+  padding: 8px;
+`;
+
+const LinkWrapper = styled(NavLink)`
+  ${itemStyles}
+  ${(p) => (p.$isCollapsed ? collapsedItemStyles : "")}
+
+  &:hover,
+  &.active {
+    background-color: ${COLORS.blue};
+    color: white;
+  }
+`;
+
+const MenuOpener = styled.button`
+  ${itemStyles}
+  ${(p) => (p.$isCollapsed ? collapsedItemStyles : "")}
+
+  margin-top: auto;
+  background-color: transparent;
+  border: none;
+
+  &:hover {
+    color: ${COLORS.blue};
+    cursor: pointer;
+  }
+`;
+
+const DrawerGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const DrawerTrigger = styled.button`
+  ${itemStyles}
+  ${(p) => (p.$isCollapsed ? collapsedItemStyles : "")}
+
+  border: none;
+  background: transparent;
+  color: ${(p) => (p.$isOpen && !p.$isCollapsed ? COLORS.blue : "inherit")};
+  text-align: left;
+
+  &:hover {
+    cursor: pointer;
+  }
+`;
+
+const ChevronIcon = styled.div`
+  margin-left: auto;
+  transform: rotate(${(p) => (p.$isOpen ? "180deg" : "0deg")});
+  transition: transform 160ms ease;
+`;
+
+const DrawerPanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 26px;
+`;
+
+const SubLink = styled(NavLink)`
+  display: block;
+  border-radius: 4px;
+  color: hsl(218 10% 38%);
+  font-size: ${12 / 16}rem;
+  line-height: 1.35;
+  padding: 7px 8px;
+  text-decoration: none;
+
+  &:hover,
+  &.active {
+    background-color: ${COLORS.blue};
+    color: white;
+  }
+`;
+
 export default LeftBar;

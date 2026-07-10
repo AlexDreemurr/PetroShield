@@ -24,7 +24,31 @@ function App() {
           <Route path="/risk-control" element={<RiskControl />} />
           <Route path="/video-ai" element={<VideoAI />} />
           <Route path="/statistics-analysis" element={<StatisticsAnalysis />} />
+          <Route
+            path="/statistics-analysis/risk-overview"
+            element={<StatisticsAnalysis title="风险态势总览" />}
+          />
+          <Route
+            path="/statistics-analysis/risk-events"
+            element={<StatisticsAnalysis title="风险事件追溯" />}
+          />
+          <Route
+            path="/statistics-analysis/alarm-stats"
+            element={<StatisticsAnalysis title="告警统计分析" />}
+          />
+          <Route
+            path="/statistics-analysis/person-tracks"
+            element={<StatisticsAnalysis title="人员轨迹分析" />}
+          />
+          <Route
+            path="/statistics-analysis/device-stats"
+            element={<StatisticsAnalysis title="设备统计分析" />}
+          />
           <Route path="/system-management" element={<SystemManagement />} />
+          <Route
+            path="/system-management/user-settings"
+            element={<SystemManagement title="用户设置" />}
+          />
         </Route>
       </Routes>
       <GlobalStyles />
