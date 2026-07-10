@@ -32,6 +32,8 @@ const ContentWrapper = styled.div`
 `;
 const Main = styled.main`
   flex: 1;
+  min-width: 0;
   height: 100%;
+  overflow: auto;
 `;
 export default MainLayout;
