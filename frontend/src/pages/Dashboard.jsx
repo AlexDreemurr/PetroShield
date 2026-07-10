@@ -52,7 +52,7 @@ function Card({ title, value, unit, icon, tone, isLoading, hasError }) {
         <MetricValue>{displayValue}</MetricValue>
         <MetricUnit>{unit}</MetricUnit>
       </MetricLine>
-      <CardHint>{hasError ? "数据获取失败" : "实时聚合指标"}</CardHint>
+      <CardHint>{hasError ? "数据获取失败" : ""}</CardHint>
     </CardWrapper>
   );
 }
