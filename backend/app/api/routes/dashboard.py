@@ -3,7 +3,7 @@ import ssl
 from urllib.parse import urlsplit
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 router = APIRouter()
 
@@ -40,6 +40,28 @@ def build_distribution(total: int, items: list[tuple[str, str, int]]) -> dict:
         }
         for key, label, count in items
     }
+
+
+def build_alarm_title(alarm_type: str | None) -> str:
+    if not alarm_type:
+        return "未知告警"
+
+    return alarm_type if alarm_type.endswith("告警") else f"{alarm_type}告警"
+
+
+def build_alarm_meta(row: asyncpg.Record) -> str:
+    if row["person_name"]:
+        person_parts = [
+            row["person_name"],
+            row["person_department"] or row["person_company"],
+        ]
+        return " / ".join(part for part in person_parts if part)
+
+    if row["device_name"]:
+        device_parts = [row["device_name"], row["device_type"]]
+        return " / ".join(part for part in device_parts if part)
+
+    return row["status"]
 
 
 @router.get("/metrics")
@@ -179,4 +201,73 @@ async def get_dashboard_metrics():
                 ("alarm", "告警", row["device_alarm_count"]),
             ],
         ),
+    }
+
+
+@router.get("/realtime-alarms")
+async def get_realtime_alarms(limit: int = Query(default=5, ge=1, le=20)):
+    database_url = get_database_url()
+
+    if not database_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
+        )
+
+    query = """
+        select
+          a.id,
+          a.type,
+          a.level,
+          a.status,
+          a."time",
+          a.description,
+          p.name as person_name,
+          p.department as person_department,
+          p.company as person_company,
+          d.name as device_name,
+          d.type as device_type
+        from public.alarm a
+        left join public.person p on p.id = a.person_id
+        left join public.device d on d.id = a.device_id
+        where a.status not in ('关闭', '误报')
+        order by a."time" desc, a.create_time desc
+        limit $1;
+    """
+
+    try:
+        connection = await asyncpg.connect(
+            database_url,
+            ssl=create_ssl_context() if should_use_ssl(database_url) else False,
+        )
+        rows = await connection.fetch(query, limit)
+    except Exception as exc:
+        print(f"Failed to load realtime alarms: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to load realtime alarms",
+        ) from exc
+    finally:
+        if "connection" in locals():
+            await connection.close()
+
+    return {
+        "items": [
+            {
+                "id": row["id"],
+                "type": row["type"],
+                "title": build_alarm_title(row["type"]),
+                "level": row["level"],
+                "status": row["status"],
+                "time": row["time"].isoformat(),
+                "description": row["description"],
+                "meta": build_alarm_meta(row),
+                "person_name": row["person_name"],
+                "department": row["person_department"],
+                "company": row["person_company"],
+                "device_name": row["device_name"],
+                "device_type": row["device_type"],
+            }
+            for row in rows
+        ]
     }
