@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import Icon from "../components/Icon/Icon";
-import { COLORS } from "../constants/STYLES";
+import { COLORS, FONT_SIZES } from "../constants/STYLES";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+
+const ALARM_PAGE_SIZE = 5;
 
 const dashboardPalette = {
   blue: "hsl(214 92% 56%)",
@@ -62,44 +64,6 @@ const deviceStatusConfig = [
   { key: "alarm", label: "告警", color: dashboardPalette.red },
 ];
 
-const fallbackAlarmItems = [
-  {
-    title: "人员越界告警",
-    meta: "张三 / 运行部",
-    level: "严重",
-    time: "16:28:15",
-    tone: "red",
-  },
-  {
-    title: "静止超时告警",
-    meta: "李四 / 维护部",
-    level: "中等",
-    time: "16:25:42",
-    tone: "orange",
-  },
-  {
-    title: "未佩戴安全帽",
-    meta: "王五 / 承包商",
-    level: "中等",
-    time: "16:20:18",
-    tone: "orange",
-  },
-  {
-    title: "区域入侵告警",
-    meta: "赵六 / 巡检人员",
-    level: "一般",
-    time: "16:15:33",
-    tone: "amber",
-  },
-  {
-    title: "设备离线告警",
-    meta: "AGV-023 / 运输机器人",
-    level: "一般",
-    time: "16:10:05",
-    tone: "amber",
-  },
-];
-
 function getAlarmTone(level) {
   if (["严重", "重大", "高"].includes(level)) {
     return "red";
@@ -133,9 +97,9 @@ function formatAlarmTime(value) {
 
 function normalizeRealtimeAlarm(item) {
   const title = item.title ?? `${item.type ?? "未知"}告警`;
-  const meta = item.meta ?? [item.person_name, item.department]
-    .filter(Boolean)
-    .join(" / ");
+  const meta =
+    item.meta ??
+    [item.person_name, item.department].filter(Boolean).join(" / ");
 
   return {
     title,
@@ -158,18 +122,40 @@ const factoryMarkers = [
   { id: "a2", label: "警", tone: "red", x: 83, y: 43 },
 ];
 
-const trendDays = ["06-24", "06-25", "06-26", "06-27", "06-28", "06-29", "06-30"];
+const trendDays = [
+  "06-24",
+  "06-25",
+  "06-26",
+  "06-27",
+  "06-28",
+  "06-29",
+  "06-30",
+];
 const alarmTrendLines = [
-  { label: "严重", color: dashboardPalette.red, values: [30, 70, 50, 86, 52, 62, 18] },
+  {
+    label: "严重",
+    color: dashboardPalette.red,
+    values: [30, 70, 50, 86, 52, 62, 18],
+  },
   {
     label: "中等",
     color: dashboardPalette.orange,
     values: [20, 45, 33, 56, 32, 40, 12],
   },
-  { label: "一般", color: "hsl(43 92% 58%)", values: [10, 28, 20, 36, 20, 22, 6] },
+  {
+    label: "一般",
+    color: "hsl(43 92% 58%)",
+    values: [10, 28, 20, 36, 20, 22, 6],
+  },
 ];
 const onlineRateTrend = [94, 93, 95, 92.5, 94.5, 93, 93];
-const heatmapRows = ["罐区A", "罐区B", "催化裂化区", "加氢装置区", "常减压装置区"];
+const heatmapRows = [
+  "罐区A",
+  "罐区B",
+  "催化裂化区",
+  "加氢装置区",
+  "常减压装置区",
+];
 const heatmapValues = [
   [28, 35, 46, 60, 38, 55, 31],
   [42, 62, 36, 41, 68, 50, 44],
@@ -194,7 +180,9 @@ function Card({ title, value, unit, icon, tone, isLoading, hasError }) {
         <MetricUnit>{unit}</MetricUnit>
       </MetricLine>
       <MetricFooter>
-        <MetricDelta $tone={tone}>{tone === "red" ? "+1" : "+1.2%"}</MetricDelta>
+        <MetricDelta $tone={tone}>
+          {tone === "red" ? "+1" : "+1.2%"}
+        </MetricDelta>
         <MetricLabel>{hasError ? "数据获取失败" : "较昨日"}</MetricLabel>
       </MetricFooter>
     </CardWrapper>
@@ -202,8 +190,8 @@ function Card({ title, value, unit, icon, tone, isLoading, hasError }) {
 }
 
 function DonutChart({ items, shouldShowValue }) {
-  const size = 96;
-  const strokeWidth = 13;
+  const size = 112;
+  const strokeWidth = 15;
   const center = size / 2;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -256,7 +244,7 @@ function DonutChart({ items, shouldShowValue }) {
         textAnchor="middle"
         dominantBaseline="middle"
         fill="hsl(218 10% 55%)"
-        fontSize="11"
+        fontSize={FONT_SIZES.dashboardDonutCenterLabel}
         fontWeight="500"
       >
         总数
@@ -267,7 +255,7 @@ function DonutChart({ items, shouldShowValue }) {
         textAnchor="middle"
         dominantBaseline="middle"
         fill={COLORS.gray10}
-        fontSize="20"
+        fontSize={FONT_SIZES.dashboardDonutCenterValue}
         fontWeight="700"
       >
         {shouldShowValue ? total : "--"}
@@ -312,15 +300,13 @@ function DistributionCard({
           {items.map((item) => (
             <LegendItem key={item.key}>
               <LegendDot $color={item.color} />
-              <LegendText>
-                <LegendLabel>{item.label}</LegendLabel>
-                <LegendValue>
-                  {shouldShowValue ? `${item.count}${unit}` : "--"}
-                  <LegendRatio>
-                    {shouldShowValue ? `${item.ratio}%` : "--"}
-                  </LegendRatio>
-                </LegendValue>
-              </LegendText>
+              <LegendLabel>{item.label}</LegendLabel>
+              <LegendValue>
+                {shouldShowValue ? `${item.count}${unit}` : "--"}
+              </LegendValue>
+              <LegendRatio>
+                {shouldShowValue ? `${item.ratio}%` : "--"}
+              </LegendRatio>
             </LegendItem>
           ))}
         </LegendList>
@@ -339,6 +325,10 @@ function DashboardSection({ title, action, children, className }) {
       {children}
     </Panel>
   );
+}
+
+function ChartPanelBody({ children }) {
+  return <ChartPanelContent>{children}</ChartPanelContent>;
 }
 
 function FactoryMapCard() {
@@ -390,29 +380,116 @@ function FactoryMapCard() {
   );
 }
 
-function RealtimeAlarmCard({ total, items, hasError }) {
-  const displayItems = items.length > 0 ? items : fallbackAlarmItems;
+function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
+  const displayItems = items;
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageCount = Math.max(
+    1,
+    Math.ceil(displayItems.length / ALARM_PAGE_SIZE)
+  );
+  const normalizedPage = Math.min(currentPage, pageCount - 1);
+  const visiblePageStart = Math.min(
+    Math.max(normalizedPage - 1, 0),
+    Math.max(pageCount - 4, 0)
+  );
+  const visiblePages = Array.from(
+    { length: Math.min(pageCount, 4) },
+    (_, index) => visiblePageStart + index
+  );
+  const pageItems = displayItems.slice(
+    normalizedPage * ALARM_PAGE_SIZE,
+    normalizedPage * ALARM_PAGE_SIZE + ALARM_PAGE_SIZE
+  );
+  const fixedRows = Array.from(
+    { length: ALARM_PAGE_SIZE },
+    (_, index) => pageItems[index] ?? null
+  );
+  const alarmStatusMessage = isLoading
+    ? "实时告警加载中"
+    : hasError
+    ? "实时告警加载失败"
+    : displayItems.length === 0
+    ? "暂无实时告警"
+    : "";
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [items.length, hasError]);
 
   return (
     <DashboardSection title="实时告警" action="查看更多">
-      <AlarmSummary>
-        今日累计 {total ?? "--"} 条{hasError ? " / 使用占位数据" : ""}
-      </AlarmSummary>
+      <AlarmSummary>今日累计 {total ?? "--"} 条</AlarmSummary>
       <AlarmList>
-        {displayItems.map((item) => (
-          <AlarmRow key={`${item.title}-${item.time}`}>
-            <AlarmIcon $tone={item.tone}>
-              <Icon id="Siren" size={16} strokeWidth={2} />
-            </AlarmIcon>
-            <AlarmContent>
-              <AlarmTitle>{item.title}</AlarmTitle>
-              <AlarmMeta>{item.meta}</AlarmMeta>
-            </AlarmContent>
-            <AlarmLevel $tone={item.tone}>{item.level}</AlarmLevel>
-            <AlarmTime>{item.time}</AlarmTime>
+        {alarmStatusMessage ? (
+          <AlarmStatusMessage>{alarmStatusMessage}</AlarmStatusMessage>
+        ) : null}
+        {fixedRows.map((item, index) => (
+          <AlarmRow
+            key={
+              item
+                ? `${normalizedPage}-${item.title}-${item.time}`
+                : `empty-${index}`
+            }
+            $isEmpty={!item}
+          >
+            {item ? (
+              <>
+                <AlarmIcon $tone={item.tone}>
+                  <Icon id="Siren" size={16} strokeWidth={2} />
+                </AlarmIcon>
+                <AlarmContent>
+                  <AlarmTitle>{item.title}</AlarmTitle>
+                  <AlarmMeta>{item.meta}</AlarmMeta>
+                </AlarmContent>
+                <AlarmLevel $tone={item.tone}>{item.level}</AlarmLevel>
+                <AlarmTime>{item.time}</AlarmTime>
+              </>
+            ) : null}
           </AlarmRow>
         ))}
       </AlarmList>
+      <AlarmPagination>
+        {pageCount === 1 ? (
+          <PageButton type="button" disabled>
+            ‹
+          </PageButton>
+        ) : null}
+        {pageCount > 1 ? (
+          <PageButton
+            type="button"
+            disabled={normalizedPage === 0}
+            onClick={() => setCurrentPage((page) => Math.max(page - 1, 0))}
+          >
+            ‹
+          </PageButton>
+        ) : null}
+        {visiblePages.map((page) => (
+          <PageButton
+            key={page}
+            type="button"
+            $isActive={page === normalizedPage}
+            onClick={() => setCurrentPage(page)}
+          >
+            {page + 1}
+          </PageButton>
+        ))}
+        {pageCount > 1 ? (
+          <PageButton
+            type="button"
+            disabled={normalizedPage >= pageCount - 1}
+            onClick={() =>
+              setCurrentPage((page) => Math.min(page + 1, pageCount - 1))
+            }
+          >
+            ›
+          </PageButton>
+        ) : null}
+        {pageCount === 1 ? (
+          <PageButton type="button" disabled>
+            ›
+          </PageButton>
+        ) : null}
+      </AlarmPagination>
     </DashboardSection>
   );
 }
@@ -442,9 +519,7 @@ function MultiLineChart({ lines }) {
               padding +
               (index / (line.values.length - 1)) * (width - padding * 2);
             const y =
-              height -
-              padding -
-              (value / maxValue) * (height - padding * 2);
+              height - padding - (value / maxValue) * (height - padding * 2);
             return `${x},${y}`;
           })
           .join(" ");
@@ -490,7 +565,13 @@ function SingleLineChart({ values }) {
           padding -
           ((value - minValue) / (maxValue - minValue)) * (height - padding * 2);
         return (
-          <GridLine key={value} x1={padding} x2={width - padding} y1={y} y2={y} />
+          <GridLine
+            key={value}
+            x1={padding}
+            x2={width - padding}
+            y1={y}
+            y2={y}
+          />
         );
       })}
       <polyline
@@ -502,7 +583,8 @@ function SingleLineChart({ values }) {
         strokeLinejoin="round"
       />
       {values.map((value, index) => {
-        const x = padding + (index / (values.length - 1)) * (width - padding * 2);
+        const x =
+          padding + (index / (values.length - 1)) * (width - padding * 2);
         const y =
           height -
           padding -
@@ -525,19 +607,23 @@ function AlarmTrendCard() {
         </SmallFilters>
       }
     >
-      <ChartLegend>
-        {alarmTrendLines.map((line) => (
-          <ChartLegendItem key={line.label} $color={line.color}>
-            {line.label}
-          </ChartLegendItem>
-        ))}
-      </ChartLegend>
-      <MultiLineChart lines={alarmTrendLines} />
-      <ChartAxis>
-        {trendDays.map((day) => (
-          <span key={day}>{day}</span>
-        ))}
-      </ChartAxis>
+      <ChartPanelBody>
+        <ChartLegend>
+          {alarmTrendLines.map((line) => (
+            <ChartLegendItem key={line.label} $color={line.color}>
+              {line.label}
+            </ChartLegendItem>
+          ))}
+        </ChartLegend>
+        <ChartCanvas>
+          <MultiLineChart lines={alarmTrendLines} />
+        </ChartCanvas>
+        <ChartAxis>
+          {trendDays.map((day) => (
+            <span key={day}>{day}</span>
+          ))}
+        </ChartAxis>
+      </ChartPanelBody>
     </DashboardSection>
   );
 }
@@ -553,24 +639,27 @@ function HealthHeatmapCard() {
         </SmallFilters>
       }
     >
-      <Heatmap>
-        {heatmapRows.map((row, rowIndex) => (
-          <React.Fragment key={row}>
-            <HeatmapLabel>{row}</HeatmapLabel>
-            {heatmapValues[rowIndex].map((value, colIndex) => (
-              <HeatmapCell
-                key={`${row}-${trendDays[colIndex]}`}
-                $strength={value}
-              />
-            ))}
-          </React.Fragment>
-        ))}
-      </Heatmap>
-      <ChartAxis>
-        {trendDays.map((day) => (
-          <span key={day}>{day}</span>
-        ))}
-      </ChartAxis>
+      <ChartPanelBody>
+        <ChartSpacer aria-hidden="true" />
+        <Heatmap>
+          {heatmapRows.map((row, rowIndex) => (
+            <React.Fragment key={row}>
+              <HeatmapLabel>{row}</HeatmapLabel>
+              {heatmapValues[rowIndex].map((value, colIndex) => (
+                <HeatmapCell
+                  key={`${row}-${trendDays[colIndex]}`}
+                  $strength={value}
+                />
+              ))}
+            </React.Fragment>
+          ))}
+        </Heatmap>
+        <ChartAxis>
+          {trendDays.map((day) => (
+            <span key={day}>{day}</span>
+          ))}
+        </ChartAxis>
+      </ChartPanelBody>
     </DashboardSection>
   );
 }
@@ -588,12 +677,16 @@ function DeviceOnlineTrendCard({ currentRate }) {
         </SmallFilters>
       }
     >
-      <SingleLineChart values={values} />
-      <ChartAxis>
-        {trendDays.map((day) => (
-          <span key={day}>{day}</span>
-        ))}
-      </ChartAxis>
+      <ChartPanelBody>
+        <ChartCanvas>
+          <SingleLineChart values={values} />
+        </ChartCanvas>
+        <ChartAxis>
+          {trendDays.map((day) => (
+            <span key={day}>{day}</span>
+          ))}
+        </ChartAxis>
+      </ChartPanelBody>
     </DashboardSection>
   );
 }
@@ -604,6 +697,7 @@ function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [alarmHasError, setAlarmHasError] = useState(false);
+  const [isAlarmLoading, setIsAlarmLoading] = useState(true);
 
   useEffect(() => {
     let ignore = false;
@@ -635,9 +729,10 @@ function Dashboard() {
 
     async function loadRealtimeAlarms() {
       try {
+        setIsAlarmLoading(true);
         setAlarmHasError(false);
         const response = await fetch(
-          `${API_BASE_URL}/dashboard/realtime-alarms?limit=5`
+          `${API_BASE_URL}/dashboard/realtime-alarms?limit=20`
         );
 
         if (!response.ok) {
@@ -652,6 +747,10 @@ function Dashboard() {
       } catch {
         if (!ignore) {
           setAlarmHasError(true);
+        }
+      } finally {
+        if (!ignore) {
+          setIsAlarmLoading(false);
         }
       }
     }
@@ -707,6 +806,7 @@ function Dashboard() {
           total={metrics?.today_alarm_count}
           items={realtimeAlarms}
           hasError={alarmHasError}
+          isLoading={isAlarmLoading}
         />
       </DashboardGrid>
 
@@ -720,17 +820,25 @@ function Dashboard() {
 }
 
 const Wrapper = styled.div`
+  box-sizing: border-box;
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: 88px minmax(0, 1fr) 174px;
+  grid-template-rows: 84px minmax(0, 1fr) 232px;
   gap: 8px;
   overflow: hidden;
   background-color: hsl(0 0% 97.5%);
   padding: 8px;
 
   @media (max-height: 780px) {
-    grid-template-rows: 80px minmax(0, 1fr) 158px;
+    grid-template-rows: 80px minmax(0, 1fr) 200px;
+  }
+
+  @media (max-width: 1280px) {
+    height: auto;
+    min-height: 100%;
+    grid-template-rows: auto auto auto;
+    overflow: visible;
   }
 `;
 
@@ -738,23 +846,29 @@ const CardGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+  grid-auto-rows: 84px;
 
   @media (max-width: 1180px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 760px) {
+    grid-template-columns: minmax(0, 1fr);
   }
 `;
 
 const CardWrapper = styled.article`
   min-height: 0;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
   grid-template-rows: auto auto auto;
   column-gap: 12px;
+  row-gap: 0;
   align-content: center;
   border: 1px solid hsl(220 13% 90%);
   border-radius: 8px;
   background: hsl(0 0% 100%);
-  padding: 10px 16px;
+  padding: 10px 18px;
 `;
 
 const CardTopLine = styled.div`
@@ -764,13 +878,18 @@ const CardTopLine = styled.div`
 const CardTitle = styled.p`
   grid-column: 2;
   align-self: end;
-  font-size: ${13 / 16}rem;
-  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: hsl(218 15% 20%);
+  font-size: ${FONT_SIZES.dashboardMetricTitle};
+  font-weight: 600;
 `;
 
 const IconBadge = styled.div`
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   grid-column: 1;
   grid-row: 1 / 4;
   align-self: center;
@@ -783,32 +902,38 @@ const IconBadge = styled.div`
 
 const MetricLine = styled.div`
   grid-column: 2;
+  min-width: 0;
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 0;
 `;
 
 const MetricValue = styled.div`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: ${COLORS.gray10};
   font-family: var(--font-data);
-  font-size: ${27 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardMetricValue};
+  line-height: 1.03;
   font-weight: 650;
 `;
 
 const MetricUnit = styled.div`
   color: hsl(218 10% 45%);
-  font-size: ${13 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardMetricUnit};
 `;
 
 const MetricFooter = styled.div`
   grid-column: 2;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 2px;
+  margin-top: 0;
   color: hsl(218 10% 58%);
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardMetricMeta};
 `;
 
 const MetricDelta = styled.span`
@@ -818,26 +943,44 @@ const MetricDelta = styled.span`
 `;
 
 const MetricLabel = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: hsl(218 10% 58%);
 `;
 
 const DashboardGrid = styled.div`
   min-height: 0;
   display: grid;
-  grid-template-columns: 250px minmax(420px, 1fr) minmax(292px, 340px);
+  grid-template-columns:
+    clamp(280px, 17vw, 320px)
+    minmax(0, 1fr)
+    clamp(340px, 22vw, 420px);
   gap: 8px;
   align-items: stretch;
 
   @media (max-width: 1280px) {
-    grid-template-columns: 250px minmax(0, 1fr);
+    grid-template-columns: clamp(280px, 31vw, 320px) minmax(0, 1fr);
+    grid-auto-rows: auto;
 
     & > article:last-child {
       grid-column: 1 / -1;
+      min-height: 356px;
     }
   }
 
-  @media (max-width: 860px) {
+  @media (max-width: 980px) {
     grid-template-columns: minmax(0, 1fr);
+
+    & > article {
+      min-height: 420px;
+    }
+
+    & > article:last-child {
+      grid-column: auto;
+      min-height: 356px;
+    }
   }
 `;
 
@@ -846,34 +989,56 @@ const DistributionStack = styled.div`
   display: grid;
   gap: 8px;
   grid-template-rows: repeat(2, minmax(0, 1fr));
+
+  @media (max-width: 1280px) {
+    height: 501px;
+  }
+
+  @media (max-width: 980px) {
+    height: auto;
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+    grid-template-rows: 247px;
+  }
+
+  @media (max-width: 760px) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, 247px);
+  }
 `;
 
 const DistributionWrapper = styled.article`
   min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid hsl(220 13% 90%);
   border-radius: 8px;
   background: hsl(0 0% 100%);
-  padding: 12px 14px;
+  padding: 14px 18px;
   overflow: hidden;
 `;
 
 const DistributionTitle = styled.h2`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: ${COLORS.gray10};
-  font-size: ${14 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardCardTitle};
   font-weight: 650;
 `;
 
 const DistributionBody = styled.div`
+  min-height: 0;
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
+  grid-template-columns: 112px minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
-  margin-top: 10px;
+  gap: 18px;
+  margin-top: 14px;
 `;
 
 const DonutFrame = styled.div`
-  width: 96px;
-  height: 96px;
+  width: 112px;
+  height: 112px;
   display: grid;
   place-items: center;
 `;
@@ -883,16 +1048,19 @@ const DonutSvg = styled.svg`
 `;
 
 const LegendList = styled.ul`
+  min-height: 0;
   display: grid;
-  gap: 7px;
+  gap: 9px;
+  align-content: center;
   min-width: 0;
 `;
 
 const LegendItem = styled.li`
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr);
+  grid-template-columns: 8px minmax(36px, 1fr) 24px 42px;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  min-width: 0;
 `;
 
 const LegendDot = styled.span`
@@ -902,30 +1070,35 @@ const LegendDot = styled.span`
   background: ${(p) => p.$color};
 `;
 
-const LegendText = styled.div`
-  min-width: 0;
-`;
-
 const LegendLabel = styled.div`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: hsl(218 10% 30%);
-  font-size: ${12 / 16}rem;
-  line-height: 1.25;
+  font-size: ${FONT_SIZES.dashboardLegendLabel};
+  line-height: 1.1;
 `;
 
 const LegendValue = styled.div`
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-top: 2px;
+  min-width: 0;
+  justify-self: start;
+  text-align: left;
+  white-space: nowrap;
   color: ${COLORS.gray10};
   font-family: var(--font-data);
-  font-size: ${13 / 16}rem;
-  font-weight: 650;
+  font-size: ${FONT_SIZES.dashboardLegendValue};
+  font-weight: 600;
+  line-height: 1;
 `;
 
 const LegendRatio = styled.span`
+  flex: 0 0 auto;
+  justify-self: start;
+  text-align: left;
+  white-space: nowrap;
   color: hsl(218 10% 50%);
-  font-size: ${11 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardLegendRatio};
   font-weight: 500;
 `;
 
@@ -936,51 +1109,73 @@ const Panel = styled.article`
   border: 1px solid hsl(220 13% 90%);
   border-radius: 8px;
   background: hsl(0 0% 100%);
-  padding: 12px 14px;
+  padding: 14px 16px;
   overflow: hidden;
 `;
 
 const PanelHeader = styled.div`
-  min-height: 24px;
+  min-height: 28px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 `;
 
 const PanelTitle = styled.h2`
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: ${COLORS.gray10};
-  font-size: ${14 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardPanelTitle};
   font-weight: 650;
 `;
 
 const PanelAction = styled.div`
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: ${dashboardPalette.blue};
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardPanelAction};
   font-weight: 600;
 `;
 
 const MapToggles = styled.div`
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
   color: hsl(218 10% 45%);
 `;
 
 const TogglePill = styled.span`
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   position: relative;
-  padding-left: 16px;
+  padding-left: 14px;
 
   &::before {
-    content: "";
+    content: "✓";
     position: absolute;
     left: 0;
     top: 50%;
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
     border-radius: 3px;
+    display: grid;
+    place-items: center;
     background: ${dashboardPalette.blue};
+    color: white;
+    font-size: ${FONT_SIZES.dashboardCheckMark};
+    line-height: 1;
     transform: translateY(-50%);
   }
 `;
@@ -989,12 +1184,15 @@ const FactoryMap = styled.div`
   position: relative;
   flex: 1;
   min-height: 0;
-  margin-top: 8px;
+  margin-top: 10px;
   border: 1px solid hsl(214 34% 84%);
   border-radius: 6px;
   overflow: hidden;
-  background:
-    linear-gradient(135deg, hsl(211 60% 95% / 0.8), hsl(210 30% 99% / 0.9)),
+  background: linear-gradient(
+      135deg,
+      hsl(211 60% 95% / 0.8),
+      hsl(210 30% 99% / 0.9)
+    ),
     repeating-linear-gradient(
       30deg,
       transparent 0 16px,
@@ -1019,7 +1217,12 @@ const MapZone = styled.div`
   border-radius: 16px;
   color: ${(p) => mapToneColors[p.$tone].text};
   background: ${(p) => mapToneColors[p.$tone].background};
-  font-size: ${12 / 16}rem;
+  overflow: hidden;
+  padding: 0 6px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: ${FONT_SIZES.dashboardMapLabel};
   font-weight: 700;
 `;
 
@@ -1036,7 +1239,7 @@ const MapMarker = styled.div`
   color: white;
   background: ${(p) => mapToneColors[p.$tone].text};
   box-shadow: 0 6px 14px hsl(220 20% 20% / 0.16);
-  font-size: ${11 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardMapMarker};
   font-weight: 700;
   transform: translate(-50%, -50%);
 `;
@@ -1059,7 +1262,7 @@ const MapTool = styled.button`
   border-bottom: 1px solid hsl(220 13% 90%);
   background: white;
   color: hsl(218 12% 25%);
-  font-size: ${18 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardMapTool};
   font-weight: 700;
 `;
 
@@ -1069,8 +1272,9 @@ const MapLegend = styled.div`
   bottom: 14px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 8px 12px;
+  gap: 12px;
+  max-width: calc(100% - 36px);
+  padding: 7px 10px;
   border: 1px solid hsl(220 13% 90%);
   border-radius: 6px;
   background: hsl(0 0% 100% / 0.84);
@@ -1078,10 +1282,14 @@ const MapLegend = styled.div`
 `;
 
 const MapLegendItem = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   position: relative;
   padding-left: 16px;
   color: hsl(218 10% 35%);
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardMapLegend};
 
   &::before {
     content: "";
@@ -1097,31 +1305,47 @@ const MapLegendItem = styled.span`
 `;
 
 const AlarmSummary = styled.p`
-  margin-top: 2px;
+  flex: 0 0 auto;
+  margin-top: 0;
   color: hsl(218 10% 48%);
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardAlarmSummary};
 `;
 
 const AlarmList = styled.div`
-  flex: 1;
-  min-height: 0;
+  position: relative;
+  flex: 0 0 260px;
+  min-height: 260px;
   display: grid;
-  margin-top: 8px;
-  align-content: stretch;
+  grid-template-rows: repeat(5, 52px);
+  margin-top: 10px;
+  overflow: hidden;
+`;
+
+const AlarmStatusMessage = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  color: hsl(218 10% 52%);
+  font-size: ${FONT_SIZES.dashboardAlarmMeta};
+  pointer-events: none;
 `;
 
 const AlarmRow = styled.div`
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 42px 52px;
+  grid-template-columns: 32px minmax(0, 1fr) 46px 66px;
   align-items: center;
-  gap: 7px;
-  min-height: 0;
+  gap: 8px;
+  height: 52px;
   border-bottom: 1px solid hsl(220 13% 92%);
+  opacity: ${(p) => (p.$isEmpty ? 0 : 1)};
+  pointer-events: ${(p) => (p.$isEmpty ? "none" : "auto")};
 `;
 
 const AlarmIcon = styled.div`
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 100%;
@@ -1131,41 +1355,95 @@ const AlarmIcon = styled.div`
 
 const AlarmContent = styled.div`
   min-width: 0;
+  overflow: hidden;
 `;
 
 const AlarmTitle = styled.div`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: ${COLORS.gray10};
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardAlarmTitle};
   font-weight: 650;
 `;
 
 const AlarmMeta = styled.div`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-top: 2px;
   color: hsl(218 10% 55%);
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardAlarmMeta};
 `;
 
 const AlarmLevel = styled.span`
   justify-self: start;
+  max-width: 46px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border-radius: 5px;
   padding: 3px 7px;
   color: ${(p) => mapToneColors[p.$tone].text};
   background: ${(p) => mapToneColors[p.$tone].background};
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardAlarmBadge};
   font-weight: 700;
 `;
 
 const AlarmTime = styled.span`
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
   color: hsl(218 10% 55%);
   font-family: var(--font-data);
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardAlarmTime};
+  justify-self: end;
+`;
+
+const AlarmPagination = styled.div`
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 4px;
+`;
+
+const PageButton = styled.button`
+  min-width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: ${(p) => (p.$isActive ? dashboardPalette.blue : "transparent")};
+  color: ${(p) =>
+    p.$isActive
+      ? "white"
+      : p.disabled
+      ? "hsl(218 10% 70%)"
+      : "hsl(218 10% 42%)"};
+  font-family: var(--font-data);
+  font-size: ${FONT_SIZES.dashboardPageButton};
+  font-weight: ${(p) => (p.$isActive ? 700 : 500)};
+  cursor: ${(p) => (p.disabled ? "default" : "pointer")};
+
+  &:hover:not(:disabled) {
+    color: ${(p) => (p.$isActive ? "white" : dashboardPalette.blue)};
+    background: ${(p) =>
+      p.$isActive ? dashboardPalette.blue : dashboardPalette.softBlue};
+  }
 `;
 
 const BottomGrid = styled.div`
   min-height: 0;
   display: grid;
-  grid-template-columns: 1.05fr 1.05fr 1.15fr;
+  grid-template-columns: 1.05fr 1fr 1.08fr;
   gap: 8px;
+  grid-auto-rows: minmax(0, 1fr);
 
   ${Panel} {
     min-height: 0;
@@ -1173,7 +1451,21 @@ const BottomGrid = styled.div`
 
   @media (max-width: 1180px) {
     grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: 232px;
   }
+`;
+
+const ChartPanelContent = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 16px minmax(0, 1fr) 20px;
+  row-gap: 8px;
+  padding-top: 4px;
+`;
+
+const ChartSpacer = styled.div`
+  min-height: 0;
 `;
 
 const SmallFilters = styled.div`
@@ -1182,29 +1474,36 @@ const SmallFilters = styled.div`
 `;
 
 const SmallFilter = styled.span`
-  min-width: 58px;
+  min-width: 50px;
   border: 1px solid hsl(220 13% 88%);
   border-radius: 6px;
-  padding: 5px 8px;
+  padding: 3px 8px;
   color: hsl(218 10% 45%);
   background: hsl(0 0% 100%);
   text-align: center;
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardFilter};
   font-weight: 500;
 `;
 
 const ChartLegend = styled.div`
   display: flex;
   justify-content: flex-end;
-  gap: 16px;
+  gap: 12px;
   margin-top: 0;
+  min-width: 0;
+  overflow: hidden;
 `;
 
 const ChartLegendItem = styled.span`
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   position: relative;
   padding-left: 14px;
   color: hsl(218 10% 42%);
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardChartLegend};
 
   &::before {
     content: "";
@@ -1219,15 +1518,17 @@ const ChartLegendItem = styled.span`
   }
 `;
 
+const ChartCanvas = styled.div`
+  min-height: 0;
+  overflow: hidden;
+`;
+
 const ChartSvg = styled.svg`
   width: 100%;
-  height: 108px;
-  margin-top: 4px;
-  overflow: visible;
-
-  @media (max-height: 780px) {
-    height: 92px;
-  }
+  height: 100%;
+  min-height: 0;
+  display: block;
+  overflow: hidden;
 `;
 
 const GridLine = styled.line`
@@ -1243,30 +1544,37 @@ const ChartDot = styled.circle`
 `;
 
 const ChartAxis = styled.div`
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
   color: hsl(218 10% 55%);
   font-family: var(--font-data);
-  font-size: ${11 / 16}rem;
+  font-size: ${FONT_SIZES.dashboardAxis};
+  align-items: end;
   text-align: center;
 `;
 
 const Heatmap = styled.div`
+  min-height: 0;
+  align-self: center;
   display: grid;
-  grid-template-columns: 82px repeat(7, minmax(0, 1fr));
+  grid-template-columns: 88px repeat(7, minmax(0, 1fr));
   gap: 4px;
-  margin-top: 14px;
 `;
 
 const HeatmapLabel = styled.div`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: hsl(218 10% 42%);
-  font-size: ${12 / 16}rem;
-  line-height: 19px;
+  font-size: ${FONT_SIZES.dashboardHeatmapLabel};
+  line-height: 20px;
 `;
 
 const HeatmapCell = styled.div`
-  height: 19px;
+  height: 20px;
   border-radius: 3px;
   background: hsl(214 92% ${(p) => 96 - p.$strength * 0.44}%);
 `;

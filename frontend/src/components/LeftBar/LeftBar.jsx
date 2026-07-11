@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import Icon from "../Icon/Icon";
 import styled from "styled-components";
-import { COLORS } from "../../constants/STYLES";
+import { COLORS, FONT_SIZES } from "../../constants/STYLES";
 
 const navItems = [
   { to: "/", icon: "House", label: "首页" },
@@ -173,7 +173,7 @@ const itemStyles = `
   padding: 8px 30px 8px 12px;
   border-radius: 4px;
   color: inherit;
-  font-size: ${13 / 16}rem;
+  font-size: ${FONT_SIZES.navItem};
   text-decoration: none;
 `;
 
@@ -255,7 +255,7 @@ const SubLink = styled(NavLink)`
   display: block;
   border-radius: 4px;
   color: hsl(218 10% 38%);
-  font-size: ${12 / 16}rem;
+  font-size: ${FONT_SIZES.navSubItem};
   line-height: 1.35;
   padding: 7px 8px 7px 34px;
   text-decoration: none;

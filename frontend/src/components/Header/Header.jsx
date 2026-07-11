@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import styled from "styled-components";
-import { COLORS } from "../../constants/STYLES";
+import { COLORS, FONT_SIZES } from "../../constants/STYLES";
 import Icon from "../Icon/Icon";
 
 function Header() {
@@ -74,7 +74,12 @@ const Wrapper = styled.div`
   align-items: center;
   gap: 20px;
   height: 50px;
+  min-width: 0;
   border-bottom: 1px ${COLORS.gray90} solid;
+
+  @media (max-width: 900px) {
+    gap: 10px;
+  }
 `;
 
 const IconWrapper = styled.div`
@@ -82,6 +87,10 @@ const IconWrapper = styled.div`
   gap: 2px;
   align-items: center;
   padding: 8px 10px 8px 14px;
+
+  @media (max-width: 760px) {
+    padding-right: 6px;
+  }
 `;
 
 const TitleWrapper = styled.div`
@@ -89,21 +98,30 @@ const TitleWrapper = styled.div`
   flex-direction: column;
   align-items: center;
   margin-right: 40px;
+
+  @media (max-width: 900px) {
+    margin-right: 12px;
+  }
 `;
 
 const Title = styled.p`
-  font-size: ${16 / 16}rem;
+  font-size: ${FONT_SIZES.brandTitle};
   font-weight: 500;
 `;
 
 const TitleAbbr = styled.p`
-  font-size: ${8 / 16}rem;
+  font-size: ${FONT_SIZES.brandSubtitle};
   text-transform: uppercase;
 `;
 
 const Name = styled.p`
   font-weight: 500;
   margin-right: auto;
+  white-space: nowrap;
+
+  @media (max-width: 900px) {
+    display: none;
+  }
 `;
 
 const SearchWrapper = styled.div`
@@ -111,6 +129,15 @@ const SearchWrapper = styled.div`
   flex: 0 1 360px;
   min-width: 260px;
   color: hsl(218 10% 48%);
+
+  @media (max-width: 900px) {
+    flex: 1 1 180px;
+    min-width: 160px;
+  }
+
+  @media (max-width: 760px) {
+    display: none;
+  }
 `;
 
 const SearchIcon = styled.div`
@@ -128,7 +155,7 @@ const SearchInput = styled.input`
   border-radius: 8px;
   background: hsl(0 0% 100%);
   color: ${COLORS.gray10};
-  font-size: ${14 / 16}rem;
+  font-size: ${FONT_SIZES.input};
   outline: none;
   padding: 0 14px 0 42px;
   transition: border-color 160ms ease, background-color 160ms ease,
@@ -148,6 +175,10 @@ const SearchInput = styled.input`
 const ButtonGroups = styled.div`
   display: flex;
   gap: 12px;
+
+  @media (max-width: 760px) {
+    gap: 4px;
+  }
 `;
 
 const Button = styled.button`
@@ -181,6 +212,12 @@ const AvatarSelect = styled.button`
   background: hsl(0 0% 100%);
   color: ${COLORS.gray10};
 
+  @media (max-width: 760px) {
+    min-width: 58px;
+    gap: 6px;
+    padding: 4px 6px;
+  }
+
   &:hover {
     cursor: pointer;
     background: hsl(220 16% 97%);
@@ -196,7 +233,7 @@ const Avatar = styled.div`
   flex: 0 0 auto;
   background: hsl(220 90% 50% / 0.12);
   color: ${COLORS.blue};
-  font-size: ${14 / 16}rem;
+  font-size: ${FONT_SIZES.input};
   font-weight: 700;
 `;
 
@@ -204,17 +241,21 @@ const UserText = styled.div`
   min-width: 0;
   text-align: left;
   line-height: 1.2;
+
+  @media (max-width: 760px) {
+    display: none;
+  }
 `;
 
 const UserName = styled.div`
-  font-size: ${13 / 16}rem;
+  font-size: ${FONT_SIZES.userName};
   font-weight: 500;
 `;
 
 const UserRole = styled.div`
   margin-top: 3px;
   color: hsl(218 10% 48%);
-  font-size: ${11 / 16}rem;
+  font-size: ${FONT_SIZES.userRole};
 `;
 
 const ChevronIcon = styled.div`
@@ -244,7 +285,7 @@ const MenuItem = styled.button`
   border-radius: 6px;
   background: transparent;
   color: ${COLORS.gray10};
-  font-size: ${14 / 16}rem;
+  font-size: ${FONT_SIZES.menuItem};
   text-align: left;
   padding: 0 10px;
 
