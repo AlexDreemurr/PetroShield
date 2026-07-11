@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { NavLink, useLocation } from "react-router";
+import { NavLink, useLocation, useNavigate } from "react-router";
 import Icon from "../Icon/Icon";
 import styled from "styled-components";
 import { COLORS } from "../../constants/STYLES";
@@ -33,13 +33,19 @@ const navItems = [
 
 function LeftBar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [openGroups, setOpenGroups] = useState(() => ({
-    "/statistics-analysis": location.pathname.startsWith(
-      "/statistics-analysis"
-    ),
-    "/system-management": location.pathname.startsWith("/system-management"),
-  }));
+  const [openGroups, setOpenGroups] = useState({
+    "/statistics-analysis": false,
+    "/system-management": false,
+  });
+
+  const closeAllGroups = () => {
+    setOpenGroups({
+      "/statistics-analysis": false,
+      "/system-management": false,
+    });
+  };
 
   const toggleGroup = (path) => {
     if (isCollapsed) return;
@@ -50,30 +56,45 @@ function LeftBar() {
     }));
   };
 
+  const handleDrawerClick = (item) => {
+    if (isCollapsed) {
+      navigate(item.children[0].to);
+      return;
+    }
+
+    toggleGroup(item.path);
+  };
+
+  const handleMenuOpenerClick = () => {
+    if (!isCollapsed) {
+      closeAllGroups();
+    }
+
+    setIsCollapsed((current) => !current);
+  };
+
   return (
     <Wrapper $isCollapsed={isCollapsed}>
       {navItems.map((item) => {
         if (item.children) {
           const isOpen = openGroups[item.path];
+          const isActiveGroup = location.pathname.startsWith(item.path);
 
           return (
             <DrawerGroup key={item.path}>
               <DrawerTrigger
                 type="button"
                 title={item.label}
+                $isActiveGroup={isActiveGroup}
                 $isOpen={isOpen}
                 $isCollapsed={isCollapsed}
-                onClick={() => toggleGroup(item.path)}
+                onClick={() => handleDrawerClick(item)}
               >
                 <Icon id={item.icon} size={18} />
-                {!isCollapsed && (
-                  <>
-                    <Word>{item.label}</Word>
-                    <ChevronIcon $isOpen={isOpen}>
-                      <Icon id="ChevronDown" size={15} strokeWidth={2} />
-                    </ChevronIcon>
-                  </>
-                )}
+                <Word $isCollapsed={isCollapsed}>{item.label}</Word>
+                <ChevronIcon $isOpen={isOpen} $isCollapsed={isCollapsed}>
+                  <Icon id="ChevronDown" size={15} strokeWidth={2} />
+                </ChevronIcon>
               </DrawerTrigger>
 
               {!isCollapsed && isOpen && (
@@ -96,9 +117,14 @@ function LeftBar() {
             end={item.to === "/"}
             title={item.label}
             $isCollapsed={isCollapsed}
+            onClick={() => {
+              if (isCollapsed) {
+                closeAllGroups();
+              }
+            }}
           >
             <Icon id={item.icon} size={18} />
-            {!isCollapsed && <Word>{item.label}</Word>}
+            <Word $isCollapsed={isCollapsed}>{item.label}</Word>
           </LinkWrapper>
         );
       })}
@@ -107,10 +133,10 @@ function LeftBar() {
         type="button"
         title={isCollapsed ? "展开菜单" : "收起菜单"}
         $isCollapsed={isCollapsed}
-        onClick={() => setIsCollapsed((current) => !current)}
+        onClick={handleMenuOpenerClick}
       >
         <Icon id="Menu" size={18} />
-        {!isCollapsed && <Word>收起菜单</Word>}
+        <Word $isCollapsed={isCollapsed}>收起菜单</Word>
       </MenuOpener>
     </Wrapper>
   );
@@ -128,15 +154,23 @@ const Wrapper = styled.div`
 `;
 
 const Word = styled.p`
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  opacity: ${(p) => (p.$isCollapsed ? 0 : 1)};
   white-space: nowrap;
+  text-align: left;
+  transform: translateY(-1px);
+  transition: opacity 120ms ease;
 `;
 
 const itemStyles = `
+  position: relative;
   width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 8px 8px 12px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 8px 30px 8px 12px;
   border-radius: 4px;
   color: inherit;
   font-size: ${13 / 16}rem;
@@ -144,8 +178,9 @@ const itemStyles = `
 `;
 
 const collapsedItemStyles = `
-  justify-content: center;
-  padding: 8px;
+  grid-template-columns: 18px 0;
+  column-gap: 0;
+  padding-right: 12px;
 `;
 
 const LinkWrapper = styled(NavLink)`
@@ -182,28 +217,38 @@ const DrawerGroup = styled.div`
 const DrawerTrigger = styled.button`
   ${itemStyles}
   ${(p) => (p.$isCollapsed ? collapsedItemStyles : "")}
-
   border: none;
-  background: transparent;
-  color: ${(p) => (p.$isOpen && !p.$isCollapsed ? COLORS.blue : "inherit")};
+  background: ${(p) =>
+    p.$isCollapsed && p.$isActiveGroup ? COLORS.blue : "transparent"};
+  color: ${(p) =>
+    p.$isOpen && !p.$isCollapsed
+      ? COLORS.blue
+      : p.$isCollapsed && p.$isActiveGroup
+        ? "white"
+      : "inherit"};
   text-align: left;
 
   &:hover {
+    background-color: ${(p) => (p.$isCollapsed ? COLORS.blue : "transparent")};
+    color: ${(p) => (p.$isCollapsed ? "white" : COLORS.blue)};
     cursor: pointer;
   }
 `;
 
 const ChevronIcon = styled.div`
-  margin-left: auto;
-  transform: rotate(${(p) => (p.$isOpen ? "180deg" : "0deg")});
-  transition: transform 160ms ease;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  opacity: ${(p) => (p.$isCollapsed ? 0 : 1)};
+  pointer-events: none;
+  transform: translateY(-50%) rotate(${(p) => (p.$isOpen ? "180deg" : "0deg")});
+  transition: opacity 120ms ease, transform 160ms ease;
 `;
 
 const DrawerPanel = styled.div`
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding-left: 26px;
 `;
 
 const SubLink = styled(NavLink)`
@@ -212,7 +257,7 @@ const SubLink = styled(NavLink)`
   color: hsl(218 10% 38%);
   font-size: ${12 / 16}rem;
   line-height: 1.35;
-  padding: 7px 8px;
+  padding: 7px 8px 7px 34px;
   text-decoration: none;
 
   &:hover,
