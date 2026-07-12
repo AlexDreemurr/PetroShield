@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import styled from "styled-components";
 import Icon from "../components/Icon/Icon";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
@@ -138,6 +138,29 @@ function formatTrendDay(value) {
     .replace("/", "-");
 }
 
+function formatTrendBucket(value, granularity) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  if (granularity === "hour") {
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Shanghai",
+    })
+      .format(date)
+      .replaceAll("/", "-");
+  }
+
+  const day = formatTrendDay(date);
+  return granularity === "week" ? `${day}周` : day;
+}
+
 const trendDays = Array.from({ length: 7 }, (_, index) => {
   const date = new Date();
   date.setDate(date.getDate() - (6 - index));
@@ -148,17 +171,17 @@ function buildAlarmTrendLines(items) {
   return [
     {
       label: "重大",
-      color: dashboardPalette.red,
+      color: "hsl(348 83% 47%)",
       values: items.map((item) => Number(item.major ?? 0)),
     },
     {
       label: "严重",
-      color: dashboardPalette.orange,
+      color: "hsl(25 95% 53%)",
       values: items.map((item) => Number(item.severe ?? 0)),
     },
     {
       label: "一般",
-      color: "hsl(43 92% 58%)",
+      color: "hsl(48 96% 50%)",
       values: items.map((item) => Number(item.general ?? 0)),
     },
   ];
@@ -523,8 +546,9 @@ function buildSmoothPath(points) {
 
 function MultiLineChart({ lines }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
-  const width = 420;
-  const height = 150;
+  const svgRef = useRef(null);
+  const [chartSize, setChartSize] = useState({ width: 420, height: 150 });
+  const { width, height } = chartSize;
   const padding = { top: 8, right: 8, bottom: 6, left: 30 };
   const allValues = lines.flatMap((line) => line.values);
   const maxValue = Math.max(...allValues, 0);
@@ -550,10 +574,32 @@ function MultiLineChart({ lines }) {
     ? Math.max(hoveredPoint.y - 32, padding.top)
     : 0;
 
+  useEffect(() => {
+    const svg = svgRef.current;
+
+    if (!svg) {
+      return undefined;
+    }
+
+    const updateSize = () => {
+      const bounds = svg.getBoundingClientRect();
+
+      if (bounds.width > 0 && bounds.height > 0) {
+        setChartSize({ width: bounds.width, height: bounds.height });
+      }
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(svg);
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <ChartSvg
+      ref={svgRef}
       viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
       role="img"
       aria-label="最近7天告警等级趋势曲线"
       onMouseLeave={() => setHoveredPoint(null)}
@@ -603,8 +649,8 @@ function MultiLineChart({ lines }) {
                 r={
                   hoveredPoint?.line === line.label &&
                   hoveredPoint?.index === index
-                    ? 5
-                    : 3.5
+                    ? 4
+                    : 2.5
                 }
                 fill={line.color}
                 tabIndex="0"
@@ -690,27 +736,49 @@ function SingleLineChart({ values }) {
   );
 }
 
-function AlarmTrendCard({ items, isLoading, hasError }) {
+function AlarmTrendCard({
+  items,
+  isLoading,
+  hasError,
+  rangeDays,
+  granularity,
+  onRangeDaysChange,
+  onGranularityChange,
+}) {
   const lines = buildAlarmTrendLines(items);
-  const days = items.map((item) => formatTrendDay(`${item.date}T00:00:00+08:00`));
+  const days = items.map((item) =>
+    formatTrendBucket(item.bucket_start ?? item.date, granularity)
+  );
+  const labelInterval = Math.max(1, Math.ceil(days.length / 7));
   const statusMessage = isLoading
     ? "告警趋势加载中..."
     : hasError
-      ? "告警趋势加载失败"
-      : items.length === 0
-        ? "近7天暂无告警数据"
-        : null;
+    ? "告警趋势加载失败"
+    : items.length === 0
+    ? "近7天暂无告警数据"
+    : null;
 
   return (
     <DashboardSection
       title="告警趋势分析"
       action={
         <SmallFilters>
-          <TrendFilterSelect aria-label="时间范围" defaultValue="last7">
-            <option value="last7">近7天</option>
+          <TrendFilterSelect
+            aria-label="时间范围"
+            value={rangeDays}
+            onChange={(event) => onRangeDaysChange(Number(event.target.value))}
+          >
+            <option value="7">近7天</option>
+            <option value="30">近30天</option>
           </TrendFilterSelect>
-          <TrendFilterSelect aria-label="聚合粒度" defaultValue="day">
+          <TrendFilterSelect
+            aria-label="聚合粒度"
+            value={granularity}
+            onChange={(event) => onGranularityChange(event.target.value)}
+          >
+            <option value="hour">按小时</option>
             <option value="day">按日</option>
+            <option value="week">按周</option>
           </TrendFilterSelect>
         </SmallFilters>
       }
@@ -730,9 +798,13 @@ function AlarmTrendCard({ items, isLoading, hasError }) {
             <MultiLineChart lines={lines} />
           )}
         </ChartCanvas>
-        <AlarmChartAxis>
-          {days.map((day) => (
-            <span key={day}>{day}</span>
+        <AlarmChartAxis $count={Math.max(days.length, 1)}>
+          {days.map((day, index) => (
+            <span key={`${day}-${index}`}>
+              {index % labelInterval === 0 || index === days.length - 1
+                ? day
+                : ""}
+            </span>
           ))}
         </AlarmChartAxis>
       </ChartPanelBody>
@@ -813,6 +885,8 @@ function Dashboard() {
   const [alarmTrend, setAlarmTrend] = useState([]);
   const [alarmTrendHasError, setAlarmTrendHasError] = useState(false);
   const [isAlarmTrendLoading, setIsAlarmTrendLoading] = useState(true);
+  const [alarmTrendRangeDays, setAlarmTrendRangeDays] = useState(7);
+  const [alarmTrendGranularity, setAlarmTrendGranularity] = useState("day");
 
   useEffect(() => {
     let ignore = false;
@@ -891,7 +965,7 @@ function Dashboard() {
         setIsAlarmTrendLoading(true);
         setAlarmTrendHasError(false);
         const response = await fetch(
-          `${API_BASE_URL}/dashboard/alarm-trend?days=7&granularity=day`
+          `${API_BASE_URL}/dashboard/alarm-trend?days=${alarmTrendRangeDays}&granularity=${alarmTrendGranularity}`
         );
 
         if (!response.ok) {
@@ -921,7 +995,7 @@ function Dashboard() {
       ignore = true;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [alarmTrendGranularity, alarmTrendRangeDays]);
 
   return (
     <Wrapper>
@@ -970,6 +1044,10 @@ function Dashboard() {
           items={alarmTrend}
           isLoading={isAlarmTrendLoading}
           hasError={alarmTrendHasError}
+          rangeDays={alarmTrendRangeDays}
+          granularity={alarmTrendGranularity}
+          onRangeDaysChange={setAlarmTrendRangeDays}
+          onGranularityChange={setAlarmTrendGranularity}
         />
         <HealthHeatmapCard />
         <DeviceOnlineTrendCard currentRate={metrics?.device_online_rate} />
@@ -1742,15 +1820,11 @@ const ChartCurve = styled.path`
 `;
 
 const TrendPoint = styled.circle`
-  stroke: white;
-  stroke-width: 1.5;
+  stroke: none;
   cursor: pointer;
-  transition: r 120ms ease;
 
   &:focus {
     outline: none;
-    stroke: hsl(214 92% 30%);
-    stroke-width: 2;
   }
 `;
 
@@ -1788,9 +1862,15 @@ const ChartAxis = styled.div`
 
 const AlarmChartAxis = styled(ChartAxis)`
   box-sizing: border-box;
-  padding-left: 7.1429%;
-  padding-right: 1.9048%;
+  grid-template-columns: repeat(${(p) => p.$count}, minmax(0, 1fr));
+  padding-left: 30px;
+  padding-right: 8px;
   gap: 0;
+
+  span {
+    min-width: 0;
+    white-space: nowrap;
+  }
 `;
 
 const Heatmap = styled.div`

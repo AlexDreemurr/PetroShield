@@ -276,7 +276,7 @@ async def get_realtime_alarms(limit: int = Query(default=5, ge=1, le=20)):
 @router.get("/alarm-trend")
 async def get_alarm_trend(
     days: int = Query(default=7, ge=1, le=31),
-    granularity: str = Query(default="day", pattern="^day$"),
+    granularity: str = Query(default="day", pattern="^(hour|day|week)$"),
 ):
     database_url = get_database_url()
 
@@ -286,39 +286,66 @@ async def get_alarm_trend(
             detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
         )
 
-    query = """
+    bucket_config = {
+        "hour": {
+            "truncate": "hour",
+            "step": "1 hour",
+            "range_end": "date_trunc('hour', now() at time zone 'Asia/Shanghai')",
+        },
+        "day": {
+            "truncate": "day",
+            "step": "1 day",
+            "range_end": "date_trunc('day', now() at time zone 'Asia/Shanghai')",
+        },
+        "week": {
+            "truncate": "week",
+            "step": "1 week",
+            "range_end": "date_trunc('week', now() at time zone 'Asia/Shanghai')",
+        },
+    }[granularity]
+
+    range_start = """
+        date_trunc('day', now() at time zone 'Asia/Shanghai')
+          - make_interval(days => $1 - 1)
+    """
+    series_start = (
+        f"date_trunc('week', {range_start})"
+        if granularity == "week"
+        else range_start
+    )
+
+    query = f"""
         with date_range as (
           select generate_series(
-            date_trunc('day', now() at time zone 'Asia/Shanghai')
-              - make_interval(days => $1 - 1),
-            date_trunc('day', now() at time zone 'Asia/Shanghai'),
-            interval '1 day'
-          )::date as alarm_date
+            {series_start},
+            {bucket_config["range_end"]},
+            interval '{bucket_config["step"]}'
+          ) as bucket_start
         ),
         alarm_counts as (
           select
-            (a."time" at time zone 'Asia/Shanghai')::date as alarm_date,
+            date_trunc(
+              '{bucket_config["truncate"]}',
+              a."time" at time zone 'Asia/Shanghai'
+            ) as bucket_start,
             count(*) filter (where a.level = '重大') as major_count,
             count(*) filter (where a.level = '严重') as severe_count,
             count(*) filter (where a.level = '一般') as general_count
           from public.alarm a
-          where a."time" >= (
-            date_trunc('day', now() at time zone 'Asia/Shanghai')
-              - make_interval(days => $1 - 1)
-          ) at time zone 'Asia/Shanghai'
+          where a."time" >= ({range_start}) at time zone 'Asia/Shanghai'
           and a."time" < (
             date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '1 day'
           ) at time zone 'Asia/Shanghai'
           group by 1
         )
         select
-          d.alarm_date,
+          d.bucket_start,
           coalesce(a.major_count, 0) as major_count,
           coalesce(a.severe_count, 0) as severe_count,
           coalesce(a.general_count, 0) as general_count
         from date_range d
-        left join alarm_counts a using (alarm_date)
-        order by d.alarm_date;
+        left join alarm_counts a using (bucket_start)
+        order by d.bucket_start;
     """
 
     try:
@@ -342,7 +369,7 @@ async def get_alarm_trend(
         "granularity": granularity,
         "items": [
             {
-                "date": row["alarm_date"].isoformat(),
+                "bucket_start": row["bucket_start"].isoformat(),
                 "major": row["major_count"],
                 "severe": row["severe_count"],
                 "general": row["general_count"],

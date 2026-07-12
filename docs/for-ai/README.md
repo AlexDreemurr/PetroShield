@@ -259,8 +259,8 @@ GET /api/v1/dashboard/realtime-alarms?limit=20
 GET /api/v1/dashboard/alarm-trend?days=7&granularity=day
 ```
 
-- `days` 范围为 1 到 31，首页固定请求 7 天。
-- `granularity` 当前只支持 `day`。
+- `days` 范围为 1 到 31，首页支持最近 7 天和最近 30 天。
+- `granularity` 支持 `hour`、`day`、`week`，分别表示按小时、按日、按周聚合。
 - 以 `Asia/Shanghai` 时区的系统当前日期为截止日，返回连续自然日；无告警的日期也返回零值。
 - 按数据库约定统计 `重大`、`严重`、`一般` 三种等级。
 
@@ -270,7 +270,7 @@ GET /api/v1/dashboard/alarm-trend?days=7&granularity=day
   "granularity": "day",
   "items": [
     {
-      "date": "2026-07-12",
+      "bucket_start": "2026-07-12T00:00:00",
       "major": 1,
       "severe": 2,
       "general": 3
