@@ -65,11 +65,11 @@ const deviceStatusConfig = [
 ];
 
 function getAlarmTone(level) {
-  if (["严重", "重大", "高"].includes(level)) {
+  if (["重大", "高"].includes(level)) {
     return "red";
   }
 
-  if (["中等", "中", "较高"].includes(level)) {
+  if (["严重", "中等", "中", "较高"].includes(level)) {
     return "orange";
   }
 
@@ -509,48 +509,127 @@ function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
   );
 }
 
+function buildSmoothPath(points) {
+  if (points.length === 0) {
+    return "";
+  }
+
+  return points.slice(1).reduce((path, point, index) => {
+    const previous = points[index];
+    const controlX = (previous.x + point.x) / 2;
+    return `${path} C ${controlX},${previous.y} ${controlX},${point.y} ${point.x},${point.y}`;
+  }, `M ${points[0].x},${points[0].y}`);
+}
+
 function MultiLineChart({ lines }) {
+  const [hoveredPoint, setHoveredPoint] = useState(null);
   const width = 420;
   const height = 150;
-  const padding = 18;
+  const padding = { top: 8, right: 8, bottom: 6, left: 30 };
   const allValues = lines.flatMap((line) => line.values);
-  const maxValue = Math.max(...allValues, 1);
+  const maxValue = Math.max(...allValues, 0);
+  const tickStep = Math.max(1, Math.ceil(maxValue / 4));
+  const axisMax = tickStep * 4;
+  const tickValues = Array.from({ length: 5 }, (_, index) => index * tickStep);
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+
+  const getX = (index, count) =>
+    padding.left + ((index + 0.5) / Math.max(count, 1)) * plotWidth;
+  const getY = (value) =>
+    height - padding.bottom - (value / axisMax) * plotHeight;
+
+  const tooltipWidth = 72;
+  const tooltipX = hoveredPoint
+    ? Math.min(
+        Math.max(hoveredPoint.x - tooltipWidth / 2, padding.left),
+        width - padding.right - tooltipWidth
+      )
+    : 0;
+  const tooltipY = hoveredPoint
+    ? Math.max(hoveredPoint.y - 32, padding.top)
+    : 0;
 
   return (
-    <ChartSvg viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-      {[0, 1, 2, 3].map((row) => (
-        <GridLine
-          key={row}
-          x1={padding}
-          x2={width - padding}
-          y1={padding + row * 34}
-          y2={padding + row * 34}
-        />
-      ))}
-      {lines.map((line) => {
-        const points = line.values
-          .map((value, index) => {
-            const x =
-              padding +
-              (index / (line.values.length - 1)) * (width - padding * 2);
-            const y =
-              height - padding - (value / maxValue) * (height - padding * 2);
-            return `${x},${y}`;
-          })
-          .join(" ");
+    <ChartSvg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="最近7天告警等级趋势曲线"
+      onMouseLeave={() => setHoveredPoint(null)}
+    >
+      {tickValues.map((value) => {
+        const y = getY(value);
 
         return (
-          <polyline
-            key={line.label}
-            points={points}
-            fill="none"
-            stroke={line.color}
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <React.Fragment key={value}>
+            <GridLine
+              x1={padding.left}
+              x2={width - padding.right}
+              y1={y}
+              y2={y}
+            />
+            <ChartYAxisLabel x={padding.left - 7} y={y + 3}>
+              {value}
+            </ChartYAxisLabel>
+          </React.Fragment>
         );
       })}
+      <ChartYAxis
+        x1={padding.left}
+        x2={padding.left}
+        y1={padding.top}
+        y2={height - padding.bottom}
+      />
+      {lines.map((line) => {
+        const points = line.values.map((value, index) => ({
+          x: getX(index, line.values.length),
+          y: getY(value),
+          value,
+        }));
+
+        return (
+          <React.Fragment key={line.label}>
+            <ChartCurve
+              d={buildSmoothPath(points)}
+              fill="none"
+              stroke={line.color}
+            />
+            {points.map((point, index) => (
+              <TrendPoint
+                key={`${line.label}-${index}`}
+                cx={point.x}
+                cy={point.y}
+                r={
+                  hoveredPoint?.line === line.label &&
+                  hoveredPoint?.index === index
+                    ? 5
+                    : 3.5
+                }
+                fill={line.color}
+                tabIndex="0"
+                onMouseEnter={() =>
+                  setHoveredPoint({ ...point, line: line.label, index })
+                }
+                onFocus={() =>
+                  setHoveredPoint({ ...point, line: line.label, index })
+                }
+                onBlur={() => setHoveredPoint(null)}
+              >
+                <title>{`${line.label}：${point.value} 条`}</title>
+              </TrendPoint>
+            ))}
+          </React.Fragment>
+        );
+      })}
+      {hoveredPoint ? (
+        <ChartTooltip transform={`translate(${tooltipX} ${tooltipY})`}>
+          <rect width={tooltipWidth} height="24" rx="5" />
+          <text x={tooltipWidth / 2} y="16">
+            {hoveredPoint.line} {hoveredPoint.value} 条
+          </text>
+        </ChartTooltip>
+      ) : null}
     </ChartSvg>
   );
 }
@@ -611,41 +690,28 @@ function SingleLineChart({ values }) {
   );
 }
 
-function AlarmTrendCard({ items, isLoading, hasError, mode, onModeChange }) {
+function AlarmTrendCard({ items, isLoading, hasError }) {
   const lines = buildAlarmTrendLines(items);
   const days = items.map((item) => formatTrendDay(`${item.date}T00:00:00+08:00`));
-  const statusMessage =
-    mode === "day"
-      ? "按日模式待讨论"
-      : isLoading
-        ? "告警趋势加载中..."
-        : hasError
-          ? "告警趋势加载失败"
-          : items.length === 0
-            ? "近7天暂无告警数据"
-            : null;
+  const statusMessage = isLoading
+    ? "告警趋势加载中..."
+    : hasError
+      ? "告警趋势加载失败"
+      : items.length === 0
+        ? "近7天暂无告警数据"
+        : null;
 
   return (
     <DashboardSection
       title="告警趋势分析"
       action={
         <SmallFilters>
-          <TrendFilterButton
-            type="button"
-            $active={mode === "last7"}
-            aria-pressed={mode === "last7"}
-            onClick={() => onModeChange("last7")}
-          >
-            近7天
-          </TrendFilterButton>
-          <TrendFilterButton
-            type="button"
-            $active={mode === "day"}
-            aria-pressed={mode === "day"}
-            onClick={() => onModeChange("day")}
-          >
-            按日
-          </TrendFilterButton>
+          <TrendFilterSelect aria-label="时间范围" defaultValue="last7">
+            <option value="last7">近7天</option>
+          </TrendFilterSelect>
+          <TrendFilterSelect aria-label="聚合粒度" defaultValue="day">
+            <option value="day">按日</option>
+          </TrendFilterSelect>
         </SmallFilters>
       }
     >
@@ -664,11 +730,11 @@ function AlarmTrendCard({ items, isLoading, hasError, mode, onModeChange }) {
             <MultiLineChart lines={lines} />
           )}
         </ChartCanvas>
-        <ChartAxis>
+        <AlarmChartAxis>
           {days.map((day) => (
             <span key={day}>{day}</span>
           ))}
-        </ChartAxis>
+        </AlarmChartAxis>
       </ChartPanelBody>
     </DashboardSection>
   );
@@ -747,7 +813,6 @@ function Dashboard() {
   const [alarmTrend, setAlarmTrend] = useState([]);
   const [alarmTrendHasError, setAlarmTrendHasError] = useState(false);
   const [isAlarmTrendLoading, setIsAlarmTrendLoading] = useState(true);
-  const [alarmTrendMode, setAlarmTrendMode] = useState("last7");
 
   useEffect(() => {
     let ignore = false;
@@ -821,15 +886,6 @@ function Dashboard() {
   useEffect(() => {
     let ignore = false;
 
-    if (alarmTrendMode !== "last7") {
-      setAlarmTrend([]);
-      setAlarmTrendHasError(false);
-      setIsAlarmTrendLoading(false);
-      return () => {
-        ignore = true;
-      };
-    }
-
     async function loadLastSevenDaysAlarmTrend() {
       try {
         setIsAlarmTrendLoading(true);
@@ -865,7 +921,7 @@ function Dashboard() {
       ignore = true;
       window.clearInterval(intervalId);
     };
-  }, [alarmTrendMode]);
+  }, []);
 
   return (
     <Wrapper>
@@ -914,8 +970,6 @@ function Dashboard() {
           items={alarmTrend}
           isLoading={isAlarmTrendLoading}
           hasError={alarmTrendHasError}
-          mode={alarmTrendMode}
-          onModeChange={setAlarmTrendMode}
         />
         <HealthHeatmapCard />
         <DeviceOnlineTrendCard currentRate={metrics?.device_online_rate} />
@@ -1590,15 +1644,13 @@ const SmallFilter = styled.span`
   font-weight: 500;
 `;
 
-const TrendFilterButton = styled.button`
+const TrendFilterSelect = styled.select`
   min-width: 50px;
-  border: 1px solid
-    ${(p) => (p.$active ? dashboardPalette.blue : "hsl(220 13% 88%)")};
+  border: 1px solid hsl(220 13% 82%);
   border-radius: 6px;
-  padding: 3px 8px;
-  color: ${(p) => (p.$active ? "white" : "hsl(218 10% 45%)")};
-  background: ${(p) =>
-    p.$active ? dashboardPalette.blue : "hsl(0 0% 100%)"};
+  padding: 3px 20px 3px 8px;
+  color: hsl(218 10% 38%);
+  background: hsl(0 0% 100%);
   text-align: center;
   font: inherit;
   font-size: ${FONT_SIZES.dashboardFilter};
@@ -1671,6 +1723,51 @@ const GridLine = styled.line`
   stroke-dasharray: 4 5;
 `;
 
+const ChartYAxis = styled.line`
+  stroke: hsl(220 13% 78%);
+  stroke-width: 1;
+`;
+
+const ChartYAxisLabel = styled.text`
+  fill: hsl(218 10% 52%);
+  font-family: var(--font-data);
+  font-size: ${FONT_SIZES.dashboardAxis};
+  text-anchor: end;
+`;
+
+const ChartCurve = styled.path`
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+`;
+
+const TrendPoint = styled.circle`
+  stroke: white;
+  stroke-width: 1.5;
+  cursor: pointer;
+  transition: r 120ms ease;
+
+  &:focus {
+    outline: none;
+    stroke: hsl(214 92% 30%);
+    stroke-width: 2;
+  }
+`;
+
+const ChartTooltip = styled.g`
+  pointer-events: none;
+
+  rect {
+    fill: hsl(220 22% 18% / 0.94);
+  }
+
+  text {
+    fill: white;
+    font-size: ${FONT_SIZES.dashboardAxis};
+    text-anchor: middle;
+  }
+`;
+
 const ChartDot = styled.circle`
   fill: ${dashboardPalette.blue};
   stroke: white;
@@ -1687,6 +1784,13 @@ const ChartAxis = styled.div`
   font-size: ${FONT_SIZES.dashboardAxis};
   align-items: end;
   text-align: center;
+`;
+
+const AlarmChartAxis = styled(ChartAxis)`
+  box-sizing: border-box;
+  padding-left: 7.1429%;
+  padding-right: 1.9048%;
+  gap: 0;
 `;
 
 const Heatmap = styled.div`
