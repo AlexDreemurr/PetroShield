@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import styled from "styled-components";
+import BaiduSatelliteMap from "../components/BaiduSatelliteMap/BaiduSatelliteMap";
 import Icon from "../components/Icon/Icon";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
 
@@ -122,18 +123,6 @@ function normalizeRealtimeAlarm(item) {
     tone: getAlarmTone(item.level),
   };
 }
-
-const factoryMarkers = [
-  { id: "p1", label: "人", tone: "blue", x: 18, y: 28 },
-  { id: "p2", label: "人", tone: "blue", x: 34, y: 44 },
-  { id: "p3", label: "人", tone: "blue", x: 57, y: 32 },
-  { id: "p4", label: "人", tone: "blue", x: 72, y: 56 },
-  { id: "d1", label: "设", tone: "green", x: 26, y: 65 },
-  { id: "d2", label: "设", tone: "green", x: 49, y: 52 },
-  { id: "d3", label: "设", tone: "green", x: 78, y: 35 },
-  { id: "a1", label: "警", tone: "red", x: 21, y: 48 },
-  { id: "a2", label: "警", tone: "red", x: 83, y: 43 },
-];
 
 function formatTrendDay(value) {
   const date = new Date(value);
@@ -374,38 +363,7 @@ function FactoryMapCard() {
         </MapToggles>
       }
     >
-      <FactoryMap>
-        <MapZone $tone="red" $left={8} $top={18} $width={22} $height={30}>
-          加氢装置区
-        </MapZone>
-        <MapZone $tone="orange" $left={70} $top={28} $width={22} $height={32}>
-          罐区A
-        </MapZone>
-        <MapZone $tone="blue" $left={39} $top={13} $width={20} $height={16}>
-          催化裂化区
-        </MapZone>
-        {factoryMarkers.map((marker) => (
-          <MapMarker
-            key={marker.id}
-            $tone={marker.tone}
-            $x={marker.x}
-            $y={marker.y}
-          >
-            {marker.label}
-          </MapMarker>
-        ))}
-        <MapTools>
-          <MapTool>+</MapTool>
-          <MapTool>-</MapTool>
-          <MapTool>◎</MapTool>
-        </MapTools>
-        <MapLegend>
-          <MapLegendItem $tone="blue">人员</MapLegendItem>
-          <MapLegendItem $tone="green">设备</MapLegendItem>
-          <MapLegendItem $tone="red">告警</MapLegendItem>
-          <MapLegendItem $tone="orange">风险区域</MapLegendItem>
-        </MapLegend>
-      </FactoryMap>
+      <BaiduSatelliteMap />
     </DashboardSection>
   );
 }
@@ -1695,130 +1653,6 @@ const TogglePill = styled.span`
     color: white;
     font-size: ${FONT_SIZES.dashboardCheckMark};
     line-height: 1;
-    transform: translateY(-50%);
-  }
-`;
-
-const FactoryMap = styled.div`
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  margin-top: 10px;
-  border: 1px solid hsl(214 34% 84%);
-  border-radius: 6px;
-  overflow: hidden;
-  background: linear-gradient(
-      135deg,
-      hsl(211 60% 95% / 0.8),
-      hsl(210 30% 99% / 0.9)
-    ),
-    repeating-linear-gradient(
-      30deg,
-      transparent 0 16px,
-      hsl(214 56% 78% / 0.38) 17px 19px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      hsl(212 24% 88% / 0.55) 0 6px,
-      transparent 7px 24px
-    );
-`;
-
-const MapZone = styled.div`
-  position: absolute;
-  left: ${(p) => p.$left}%;
-  top: ${(p) => p.$top}%;
-  width: ${(p) => p.$width}%;
-  height: ${(p) => p.$height}%;
-  display: grid;
-  place-items: center;
-  border: 1px solid ${(p) => mapToneColors[p.$tone].text};
-  border-radius: 16px;
-  color: ${(p) => mapToneColors[p.$tone].text};
-  background: ${(p) => mapToneColors[p.$tone].background};
-  overflow: hidden;
-  padding: 0 6px;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: ${FONT_SIZES.dashboardMapLabel};
-  font-weight: 700;
-`;
-
-const MapMarker = styled.div`
-  position: absolute;
-  left: ${(p) => p.$x}%;
-  top: ${(p) => p.$y}%;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border: 2px solid white;
-  border-radius: 100%;
-  color: white;
-  background: ${(p) => mapToneColors[p.$tone].text};
-  box-shadow: 0 6px 14px hsl(220 20% 20% / 0.16);
-  font-size: ${FONT_SIZES.dashboardMapMarker};
-  font-weight: 700;
-  transform: translate(-50%, -50%);
-`;
-
-const MapTools = styled.div`
-  position: absolute;
-  right: 14px;
-  top: 48px;
-  display: grid;
-  overflow: hidden;
-  border: 1px solid hsl(220 13% 88%);
-  border-radius: 6px;
-  background: white;
-`;
-
-const MapTool = styled.button`
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-bottom: 1px solid hsl(220 13% 90%);
-  background: white;
-  color: hsl(218 12% 25%);
-  font-size: ${FONT_SIZES.dashboardMapTool};
-  font-weight: 700;
-`;
-
-const MapLegend = styled.div`
-  position: absolute;
-  left: 18px;
-  bottom: 14px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  max-width: calc(100% - 36px);
-  padding: 7px 10px;
-  border: 1px solid hsl(220 13% 90%);
-  border-radius: 6px;
-  background: hsl(0 0% 100% / 0.84);
-  backdrop-filter: blur(6px);
-`;
-
-const MapLegendItem = styled.span`
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  position: relative;
-  padding-left: 16px;
-  color: hsl(218 10% 35%);
-  font-size: ${FONT_SIZES.dashboardMapLegend};
-
-  &::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 50%;
-    width: 9px;
-    height: 9px;
-    border-radius: 100%;
-    background: ${(p) => mapToneColors[p.$tone].text};
     transform: translateY(-50%);
   }
 `;
