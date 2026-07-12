@@ -253,6 +253,7 @@ erDiagram
 模拟数据文件位于：
 
 - `database/supabase/seed.sql`
+- `database/supabase/seed_alarms.sql`
 
 当前 seed 覆盖：
 
@@ -262,26 +263,27 @@ erDiagram
 - 8 名人员
 - 4 条设备运维记录
 - 4 条设备合规年检记录
-- 6 条告警
+- 6 条基础告警
+- 20 条最近 7 天的动态告警趋势数据
 - 16 条定位记录
 
 执行方式：
 
 ```bash
-cd database/supabase
+cd database
 supabase db reset
 ```
 
 如果只想推送迁移到远端，由你手动执行：
 
 ```bash
-cd database/supabase
+cd database
 supabase db push --linked
 ```
 
 如果确认要把 seed 数据也写入远端，由你手动执行：
 
 ```bash
-cd database/supabase
+cd database
 supabase db push --linked --include-seed
 ```

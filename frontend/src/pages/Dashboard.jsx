@@ -122,32 +122,47 @@ const factoryMarkers = [
   { id: "a2", label: "警", tone: "red", x: 83, y: 43 },
 ];
 
-const trendDays = [
-  "06-24",
-  "06-25",
-  "06-26",
-  "06-27",
-  "06-28",
-  "06-29",
-  "06-30",
-];
-const alarmTrendLines = [
-  {
-    label: "严重",
-    color: dashboardPalette.red,
-    values: [30, 70, 50, 86, 52, 62, 18],
-  },
-  {
-    label: "中等",
-    color: dashboardPalette.orange,
-    values: [20, 45, 33, 56, 32, 40, 12],
-  },
-  {
-    label: "一般",
-    color: "hsl(43 92% 58%)",
-    values: [10, 28, 20, 36, 20, 22, 6],
-  },
-];
+function formatTrendDay(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Shanghai",
+  })
+    .format(date)
+    .replace("/", "-");
+}
+
+const trendDays = Array.from({ length: 7 }, (_, index) => {
+  const date = new Date();
+  date.setDate(date.getDate() - (6 - index));
+  return formatTrendDay(date);
+});
+
+function buildAlarmTrendLines(items) {
+  return [
+    {
+      label: "重大",
+      color: dashboardPalette.red,
+      values: items.map((item) => Number(item.major ?? 0)),
+    },
+    {
+      label: "严重",
+      color: dashboardPalette.orange,
+      values: items.map((item) => Number(item.severe ?? 0)),
+    },
+    {
+      label: "一般",
+      color: "hsl(43 92% 58%)",
+      values: items.map((item) => Number(item.general ?? 0)),
+    },
+  ];
+}
 const onlineRateTrend = [94, 93, 95, 92.5, 94.5, 93, 93];
 const heatmapRows = [
   "罐区A",
@@ -596,30 +611,61 @@ function SingleLineChart({ values }) {
   );
 }
 
-function AlarmTrendCard() {
+function AlarmTrendCard({ items, isLoading, hasError, mode, onModeChange }) {
+  const lines = buildAlarmTrendLines(items);
+  const days = items.map((item) => formatTrendDay(`${item.date}T00:00:00+08:00`));
+  const statusMessage =
+    mode === "day"
+      ? "按日模式待讨论"
+      : isLoading
+        ? "告警趋势加载中..."
+        : hasError
+          ? "告警趋势加载失败"
+          : items.length === 0
+            ? "近7天暂无告警数据"
+            : null;
+
   return (
     <DashboardSection
       title="告警趋势分析"
       action={
         <SmallFilters>
-          <SmallFilter>近7天</SmallFilter>
-          <SmallFilter>按日</SmallFilter>
+          <TrendFilterButton
+            type="button"
+            $active={mode === "last7"}
+            aria-pressed={mode === "last7"}
+            onClick={() => onModeChange("last7")}
+          >
+            近7天
+          </TrendFilterButton>
+          <TrendFilterButton
+            type="button"
+            $active={mode === "day"}
+            aria-pressed={mode === "day"}
+            onClick={() => onModeChange("day")}
+          >
+            按日
+          </TrendFilterButton>
         </SmallFilters>
       }
     >
       <ChartPanelBody>
         <ChartLegend>
-          {alarmTrendLines.map((line) => (
+          {lines.map((line) => (
             <ChartLegendItem key={line.label} $color={line.color}>
               {line.label}
             </ChartLegendItem>
           ))}
         </ChartLegend>
         <ChartCanvas>
-          <MultiLineChart lines={alarmTrendLines} />
+          {statusMessage ? (
+            <ChartStatusMessage>{statusMessage}</ChartStatusMessage>
+          ) : (
+            <MultiLineChart lines={lines} />
+          )}
         </ChartCanvas>
         <ChartAxis>
-          {trendDays.map((day) => (
+          {days.map((day) => (
             <span key={day}>{day}</span>
           ))}
         </ChartAxis>
@@ -698,6 +744,10 @@ function Dashboard() {
   const [hasError, setHasError] = useState(false);
   const [alarmHasError, setAlarmHasError] = useState(false);
   const [isAlarmLoading, setIsAlarmLoading] = useState(true);
+  const [alarmTrend, setAlarmTrend] = useState([]);
+  const [alarmTrendHasError, setAlarmTrendHasError] = useState(false);
+  const [isAlarmTrendLoading, setIsAlarmTrendLoading] = useState(true);
+  const [alarmTrendMode, setAlarmTrendMode] = useState("last7");
 
   useEffect(() => {
     let ignore = false;
@@ -768,6 +818,55 @@ function Dashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    let ignore = false;
+
+    if (alarmTrendMode !== "last7") {
+      setAlarmTrend([]);
+      setAlarmTrendHasError(false);
+      setIsAlarmTrendLoading(false);
+      return () => {
+        ignore = true;
+      };
+    }
+
+    async function loadLastSevenDaysAlarmTrend() {
+      try {
+        setIsAlarmTrendLoading(true);
+        setAlarmTrendHasError(false);
+        const response = await fetch(
+          `${API_BASE_URL}/dashboard/alarm-trend?days=7&granularity=day`
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to load the last seven days alarm trend");
+        }
+
+        const data = await response.json();
+
+        if (!ignore) {
+          setAlarmTrend(data.items ?? []);
+        }
+      } catch {
+        if (!ignore) {
+          setAlarmTrendHasError(true);
+        }
+      } finally {
+        if (!ignore) {
+          setIsAlarmTrendLoading(false);
+        }
+      }
+    }
+
+    loadLastSevenDaysAlarmTrend();
+    const intervalId = window.setInterval(loadLastSevenDaysAlarmTrend, 30000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, [alarmTrendMode]);
+
   return (
     <Wrapper>
       <CardGrid>
@@ -811,7 +910,13 @@ function Dashboard() {
       </DashboardGrid>
 
       <BottomGrid>
-        <AlarmTrendCard />
+        <AlarmTrendCard
+          items={alarmTrend}
+          isLoading={isAlarmTrendLoading}
+          hasError={alarmTrendHasError}
+          mode={alarmTrendMode}
+          onModeChange={setAlarmTrendMode}
+        />
         <HealthHeatmapCard />
         <DeviceOnlineTrendCard currentRate={metrics?.device_online_rate} />
       </BottomGrid>
@@ -1485,6 +1590,27 @@ const SmallFilter = styled.span`
   font-weight: 500;
 `;
 
+const TrendFilterButton = styled.button`
+  min-width: 50px;
+  border: 1px solid
+    ${(p) => (p.$active ? dashboardPalette.blue : "hsl(220 13% 88%)")};
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: ${(p) => (p.$active ? "white" : "hsl(218 10% 45%)")};
+  background: ${(p) =>
+    p.$active ? dashboardPalette.blue : "hsl(0 0% 100%)"};
+  text-align: center;
+  font: inherit;
+  font-size: ${FONT_SIZES.dashboardFilter};
+  font-weight: 500;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid ${dashboardPalette.softBlue};
+    outline-offset: 2px;
+  }
+`;
+
 const ChartLegend = styled.div`
   display: flex;
   justify-content: flex-end;
@@ -1521,6 +1647,14 @@ const ChartLegendItem = styled.span`
 const ChartCanvas = styled.div`
   min-height: 0;
   overflow: hidden;
+`;
+
+const ChartStatusMessage = styled.div`
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: hsl(218 10% 55%);
+  font-size: ${FONT_SIZES.dashboardChartLegend};
 `;
 
 const ChartSvg = styled.svg`

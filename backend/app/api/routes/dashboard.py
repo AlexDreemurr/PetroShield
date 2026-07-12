@@ -271,3 +271,82 @@ async def get_realtime_alarms(limit: int = Query(default=5, ge=1, le=20)):
             for row in rows
         ]
     }
+
+
+@router.get("/alarm-trend")
+async def get_alarm_trend(
+    days: int = Query(default=7, ge=1, le=31),
+    granularity: str = Query(default="day", pattern="^day$"),
+):
+    database_url = get_database_url()
+
+    if not database_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
+        )
+
+    query = """
+        with date_range as (
+          select generate_series(
+            date_trunc('day', now() at time zone 'Asia/Shanghai')
+              - make_interval(days => $1 - 1),
+            date_trunc('day', now() at time zone 'Asia/Shanghai'),
+            interval '1 day'
+          )::date as alarm_date
+        ),
+        alarm_counts as (
+          select
+            (a."time" at time zone 'Asia/Shanghai')::date as alarm_date,
+            count(*) filter (where a.level = '重大') as major_count,
+            count(*) filter (where a.level = '严重') as severe_count,
+            count(*) filter (where a.level = '一般') as general_count
+          from public.alarm a
+          where a."time" >= (
+            date_trunc('day', now() at time zone 'Asia/Shanghai')
+              - make_interval(days => $1 - 1)
+          ) at time zone 'Asia/Shanghai'
+          and a."time" < (
+            date_trunc('day', now() at time zone 'Asia/Shanghai') + interval '1 day'
+          ) at time zone 'Asia/Shanghai'
+          group by 1
+        )
+        select
+          d.alarm_date,
+          coalesce(a.major_count, 0) as major_count,
+          coalesce(a.severe_count, 0) as severe_count,
+          coalesce(a.general_count, 0) as general_count
+        from date_range d
+        left join alarm_counts a using (alarm_date)
+        order by d.alarm_date;
+    """
+
+    try:
+        connection = await asyncpg.connect(
+            database_url,
+            ssl=create_ssl_context() if should_use_ssl(database_url) else False,
+        )
+        rows = await connection.fetch(query, days)
+    except Exception as exc:
+        print(f"Failed to load alarm trend: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to load alarm trend",
+        ) from exc
+    finally:
+        if "connection" in locals():
+            await connection.close()
+
+    return {
+        "range": f"last_{days}_days",
+        "granularity": granularity,
+        "items": [
+            {
+                "date": row["alarm_date"].isoformat(),
+                "major": row["major_count"],
+                "severe": row["severe_count"],
+                "general": row["general_count"],
+            }
+            for row in rows
+        ],
+    }
