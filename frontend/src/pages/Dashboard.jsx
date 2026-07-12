@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import styled from "styled-components";
 import Icon from "../components/Icon/Icon";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
@@ -62,6 +63,18 @@ const deviceStatusConfig = [
   { key: "online", label: "在线", color: dashboardPalette.blue },
   { key: "offline", label: "离线", color: dashboardPalette.orange },
   { key: "alarm", label: "告警", color: dashboardPalette.red },
+];
+
+const trendRangeOptions = [
+  { value: 1, label: "近1天" },
+  { value: 3, label: "近3天" },
+  { value: 7, label: "近7天" },
+  { value: 30, label: "近30天" },
+];
+
+const deviceGranularityOptions = [
+  { value: "day", label: "按日" },
+  { value: "week", label: "按周" },
 ];
 
 function getAlarmTone(level) {
@@ -434,7 +447,10 @@ function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
   }, [items.length, hasError]);
 
   return (
-    <DashboardSection title="实时告警" action="查看更多">
+    <DashboardSection
+      title="实时告警"
+      action={<PanelActionLink to="/alarm-center">查看更多</PanelActionLink>}
+    >
       <AlarmSummary>今日累计 {total ?? "--"} 条</AlarmSummary>
       <AlarmList>
         {alarmStatusMessage ? (
@@ -664,7 +680,7 @@ function DeviceOnlineRateChart({ items }) {
   const svgRef = useRef(null);
   const [chartSize, setChartSize] = useState({ width: 420, height: 150 });
   const { width, height } = chartSize;
-  const padding = { top: 8, right: 8, bottom: 6, left: 30 };
+  const padding = { top: 10, right: 10, bottom: 8, left: 34 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const getX = (index) =>
@@ -729,20 +745,33 @@ function DeviceOnlineRateChart({ items }) {
         );
       })}
       <ChartYAxis x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} />
-      <ChartCurve d={buildSmoothPath(points)} fill="none" stroke={dashboardPalette.blue} />
+      <DeviceOnlineCurve
+        d={buildSmoothPath(points)}
+        fill="none"
+        stroke={dashboardPalette.blue}
+      />
       {points.map((point, index) => (
         <TrendPoint
+          key={`${point.bucket_start}-${index}-dot`}
+          cx={point.x}
+          cy={point.y}
+          r={hoveredPoint?.bucket_start === point.bucket_start ? 4 : 2.5}
+          fill={dashboardPalette.blue}
+        />
+      ))}
+      {points.map((point, index) => (
+        <TrendHitPoint
           key={`${point.bucket_start}-${index}`}
           cx={point.x}
           cy={point.y}
-          r="9"
+          r="10"
           tabIndex="0"
           onMouseEnter={() => setHoveredPoint(point)}
           onFocus={() => setHoveredPoint(point)}
           onBlur={() => setHoveredPoint(null)}
         >
           <title>{`在线率 ${point.online_rate}%`}</title>
-        </TrendPoint>
+        </TrendHitPoint>
       ))}
       {hoveredPoint ? (
         <DeviceChartTooltip transform={`translate(${tooltipX} ${tooltipY})`}>
@@ -968,31 +997,45 @@ function DeviceOnlineTrendCard({
       title="设备在线率趋势"
       action={
         <SmallFilters>
-          <TrendFilterSelect aria-label="设备趋势时间范围" value={rangeDays} onChange={(event) => onRangeDaysChange(Number(event.target.value))}>
-            <option value="1">近1天</option>
-            <option value="3">近3天</option>
-            <option value="7">近7天</option>
-            <option value="30">近30天</option>
-          </TrendFilterSelect>
-          <TrendFilterSelect aria-label="设备趋势聚合粒度" value={granularity} onChange={(event) => onGranularityChange(event.target.value)}>
-            <option value="day">按日</option>
-            <option value="week">按周</option>
-          </TrendFilterSelect>
+          <SegmentedControl aria-label="设备趋势时间范围">
+            {trendRangeOptions.map((option) => (
+              <SegmentButton
+                key={option.value}
+                type="button"
+                $isActive={rangeDays === option.value}
+                onClick={() => onRangeDaysChange(option.value)}
+              >
+                {option.label}
+              </SegmentButton>
+            ))}
+          </SegmentedControl>
+          <SegmentedControl aria-label="设备趋势聚合粒度">
+            {deviceGranularityOptions.map((option) => (
+              <SegmentButton
+                key={option.value}
+                type="button"
+                $isActive={granularity === option.value}
+                onClick={() => onGranularityChange(option.value)}
+              >
+                {option.label}
+              </SegmentButton>
+            ))}
+          </SegmentedControl>
         </SmallFilters>
       }
     >
-      <ChartPanelBody>
+      <DeviceChartPanelBody>
         <ChartCanvas>
           {statusMessage ? <ChartStatusMessage>{statusMessage}</ChartStatusMessage> : <DeviceOnlineRateChart items={items} />}
         </ChartCanvas>
-        <AlarmChartAxis $count={Math.max(labels.length, 1)}>
+        <DeviceChartAxis $count={Math.max(labels.length, 1)}>
           {labels.map((label, index) => (
             <span key={`${label}-${index}`}>
               {index % labelInterval === 0 || index === labels.length - 1 ? label : ""}
             </span>
           ))}
-        </AlarmChartAxis>
-      </ChartPanelBody>
+        </DeviceChartAxis>
+      </DeviceChartPanelBody>
     </DashboardSection>
   );
 }
@@ -1604,6 +1647,21 @@ const PanelAction = styled.div`
   font-weight: 600;
 `;
 
+const PanelActionLink = styled(Link)`
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    color: hsl(214 92% 46%);
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${dashboardPalette.softBlue};
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+`;
+
 const MapToggles = styled.div`
   display: flex;
   align-items: center;
@@ -1925,9 +1983,22 @@ const ChartPanelContent = styled.div`
   padding-top: 4px;
 `;
 
+const DeviceChartPanelBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 22px;
+  row-gap: 8px;
+  padding-top: 8px;
+`;
+
 const SmallFilters = styled.div`
   display: flex;
   gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: hidden;
 `;
 
 const TrendFilterSelect = styled.select`
@@ -1946,6 +2017,48 @@ const TrendFilterSelect = styled.select`
   &:focus-visible {
     outline: 2px solid ${dashboardPalette.softBlue};
     outline-offset: 2px;
+  }
+`;
+
+const SegmentedControl = styled.div`
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid hsl(220 13% 82%);
+  border-radius: 6px;
+  background: hsl(0 0% 100%);
+`;
+
+const SegmentButton = styled.button`
+  min-width: 0;
+  border: 0;
+  border-right: 1px solid hsl(220 13% 88%);
+  padding: 4px 8px;
+  color: ${(p) => (p.$isActive ? "white" : "hsl(218 10% 42%)")};
+  background: ${(p) => (p.$isActive ? dashboardPalette.blue : "transparent")};
+  font: inherit;
+  font-size: ${FONT_SIZES.dashboardFilter};
+  font-weight: ${(p) => (p.$isActive ? 700 : 500)};
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:last-child {
+    border-right: 0;
+  }
+
+  &:hover {
+    color: ${(p) => (p.$isActive ? "white" : dashboardPalette.blue)};
+    background: ${(p) =>
+      p.$isActive ? dashboardPalette.blue : dashboardPalette.softBlue};
+  }
+
+  &:focus-visible {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid hsl(214 92% 42%);
+    outline-offset: -2px;
   }
 `;
 
@@ -2027,8 +2140,22 @@ const ChartCurve = styled.path`
   stroke-linejoin: round;
 `;
 
+const DeviceOnlineCurve = styled(ChartCurve)`
+  stroke-width: 3;
+`;
+
 const TrendPoint = styled.circle`
   stroke: none;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+  }
+`;
+
+const TrendHitPoint = styled.circle`
+  fill: transparent;
+  stroke: transparent;
   cursor: pointer;
 
   &:focus {
@@ -2087,6 +2214,11 @@ const AlarmChartAxis = styled(ChartAxis)`
     min-width: 0;
     white-space: nowrap;
   }
+`;
+
+const DeviceChartAxis = styled(AlarmChartAxis)`
+  padding-left: 34px;
+  padding-right: 10px;
 `;
 
 const Heatmap = styled.div`
