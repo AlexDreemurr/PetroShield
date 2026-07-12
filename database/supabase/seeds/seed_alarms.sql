@@ -8,7 +8,9 @@ begin;
 
 do $$
 begin
-  if not exists (select 1 from public.area where id = 'area-tank-a')
+  if (select count(*) from public.person where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$') <> 25
+     or (select count(*) from public.device) < 16
+     or not exists (select 1 from public.area where id = 'area-tank-a')
      or not exists (select 1 from public.area where id = 'area-loading-b')
      or not exists (select 1 from public.area where id = 'area-office')
      or not exists (select 1 from public.area where id = 'area-pump-c')
@@ -197,6 +199,84 @@ select
     'mock_data', true
   )
 from alarm_samples a
+cross join current_day c
+on conflict (id) do update set
+  type = excluded.type,
+  level = excluded.level,
+  location = excluded.location,
+  "time" = excluded."time",
+  status = excluded.status,
+  person_id = excluded.person_id,
+  device_id = excluded.device_id,
+  confidence = excluded.confidence,
+  description = excluded.description,
+  evidence = excluded.evidence;
+
+with generated_alarm as (
+  select
+    n,
+    (n - 21) % 7 as day_offset,
+    case n % 5
+      when 0 then '越界'
+      when 1 then '设备异常'
+      when 2 then '识别异常'
+      when 3 then '离线'
+      else '跌倒'
+    end as alarm_type,
+    case
+      when n % 11 = 0 then '重大'
+      when n % 3 = 0 then '严重'
+      else '一般'
+    end as alarm_level,
+    case n % 5
+      when 0 then '新建'
+      when 1 then '处理中'
+      when 2 then '确认'
+      when 3 then '关闭'
+      else '确认'
+    end as alarm_status,
+    format('person-%s', lpad((((n - 21) % 25) + 1)::text, 3, '0')) as person_id,
+    (array[
+      'dev-camera-a01', 'dev-camera-b02', 'dev-pump-c01', 'dev-meter-c01',
+      'dev-camera-c03', 'dev-camera-office01', 'dev-gas-b02', 'dev-temp-c01',
+      'dev-access-b01', 'dev-drone-a01'
+    ])[((n - 21) % 10) + 1] as device_id,
+    (array['area-tank-a','area-loading-b','area-pump-c','area-office'])[((n - 21) % 4) + 1] as area_id
+  from generate_series(21, 50) as n
+),
+current_day as (
+  select date_trunc('day', now() at time zone 'Asia/Shanghai') as day_start
+)
+insert into public.alarm (
+  id, type, level, location, "time", status, person_id, device_id,
+  confidence, description, evidence
+)
+select
+  format('alarm-trend-%s', lpad(g.n::text, 3, '0')),
+  g.alarm_type,
+  g.alarm_level,
+  jsonb_build_object(
+    'area_id', g.area_id,
+    'x', 100 + g.n * 7 % 500,
+    'y', 70 + g.n * 11 % 300
+  ),
+  (
+    c.day_start
+    - make_interval(days => g.day_offset)
+    + time '07:00:00'
+    + make_interval(mins => g.n * 19 % 600)
+  ) at time zone 'Asia/Shanghai',
+  g.alarm_status,
+  case when g.alarm_type = '设备异常' then null else g.person_id end,
+  case when g.alarm_type in ('离线', '识别异常') then null else g.device_id end,
+  0.72 + (g.n % 20) * 0.01,
+  format('扩展模拟告警 #%s：%s场景', g.n, g.alarm_type),
+  jsonb_build_object(
+    'seed_source', 'seed_alarms.sql',
+    'mock_data', true,
+    'batch', 'expanded'
+  )
+from generated_alarm g
 cross join current_day c
 on conflict (id) do update set
   type = excluded.type,

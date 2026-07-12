@@ -1,15 +1,16 @@
 -- 最近 7 天人员健康观测模拟数据。
--- 依赖 seed.sql 中的 person-001 至 person-008，并可重复执行。
+-- 依赖 seed.sql 中的 person-001 至 person-025，并可重复执行。
 
 begin;
 
 do $$
 begin
-  if (select count(*) from public.person where id in (
-    'person-001', 'person-002', 'person-003', 'person-004',
-    'person-005', 'person-006', 'person-007', 'person-008'
-  )) <> 8 then
-    raise exception 'seed_person_health.sql 依赖 seed.sql 中的 person-001 至 person-008，请先执行 seed.sql';
+  if (
+    select count(*)
+    from public.person
+    where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$'
+  ) <> 25 then
+    raise exception 'seed_person_health.sql 依赖 seed.sql 中的 person-001 至 person-025，请先执行 seed.sql';
   end if;
 end;
 $$;
@@ -20,15 +21,11 @@ delete from public.person_health_observation
 where id like 'health-seed-%';
 
 with seeded_person(person_id, person_order) as (
-  values
-    ('person-001', 1),
-    ('person-002', 2),
-    ('person-003', 3),
-    ('person-004', 4),
-    ('person-005', 5),
-    ('person-006', 6),
-    ('person-007', 7),
-    ('person-008', 8)
+  select
+    id,
+    row_number() over (order by id)::integer
+  from public.person
+  where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$'
 ),
 day_offset as (
   select generate_series(0, 6) as value
@@ -38,12 +35,15 @@ health_samples as (
     p.id as person_id,
     sp.person_order,
     d.value as day_offset,
-    (
-      date_trunc('day', now() at time zone 'Asia/Shanghai')
-      - make_interval(days => d.value)
-      + time '06:00:00'
-      + make_interval(hours => sp.person_order)
-    ) at time zone 'Asia/Shanghai' as observation_time,
+    case
+      when d.value = 0 then now() - make_interval(secs => sp.person_order)
+      else (
+        date_trunc('day', now() at time zone 'Asia/Shanghai')
+        - make_interval(days => d.value)
+        + time '06:00:00'
+        + make_interval(mins => sp.person_order * 25)
+      ) at time zone 'Asia/Shanghai'
+    end as observation_time,
     case
       when d.value = 0 then p.health_status
       when (sp.person_order + d.value) % 9 = 0 then '限制'

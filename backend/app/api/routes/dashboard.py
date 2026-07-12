@@ -528,3 +528,123 @@ async def get_person_health_analysis(
             for row in rows
         ],
     }
+
+
+@router.get("/device-online-trend")
+async def get_device_online_trend(
+    days: int = Query(default=7, ge=1, le=31),
+    granularity: str = Query(default="day", pattern="^(day|week)$"),
+):
+    database_url = get_database_url()
+
+    if not database_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
+        )
+
+    step = "1 week" if granularity == "week" else "1 day"
+    range_start = """
+        date_trunc('day', now() at time zone 'Asia/Shanghai')
+          - make_interval(days => $1 - 1)
+    """
+    series_start = (
+        f"date_trunc('week', {range_start})"
+        if granularity == "week"
+        else range_start
+    )
+    series_end = (
+        "date_trunc('week', now() at time zone 'Asia/Shanghai')"
+        if granularity == "week"
+        else "date_trunc('day', now() at time zone 'Asia/Shanghai')"
+    )
+
+    query = f"""
+        with bucket_range as (
+          select generate_series(
+            {series_start},
+            {series_end},
+            interval '{step}'
+          ) as bucket_start
+        ),
+        device_at_bucket as (
+          select
+            b.bucket_start,
+            d.id as device_id,
+            latest.status
+          from bucket_range b
+          join public.device d
+            on d.created_at < (
+              least(
+                b.bucket_start + interval '{step}',
+                now() at time zone 'Asia/Shanghai'
+              ) at time zone 'Asia/Shanghai'
+            )
+          left join lateral (
+            select o.status
+            from public.device_realtime_observation o
+            where o.device_id = d.id
+              and o.observation_time <= (
+                least(
+                  b.bucket_start + interval '{step}',
+                  now() at time zone 'Asia/Shanghai'
+                ) at time zone 'Asia/Shanghai'
+              )
+            order by o.observation_time desc, o.created_at desc, o.id desc
+            limit 1
+          ) latest on true
+        )
+        select
+          bucket_start,
+          count(device_id) as total_count,
+          count(device_id) filter (where status = 'online') as online_count,
+          count(device_id) filter (where status = 'offline') as offline_count,
+          count(device_id) filter (where status = 'fault') as fault_count,
+          count(device_id) filter (where status = 'maintenance') as maintenance_count,
+          count(device_id) filter (where status is null) as unknown_count,
+          case
+            when count(device_id) = 0 then 0
+            else round(
+              count(device_id) filter (where status = 'online')::numeric
+              / count(device_id)::numeric * 100,
+              1
+            )
+          end as online_rate
+        from device_at_bucket
+        group by bucket_start
+        order by bucket_start;
+    """
+
+    try:
+        connection = await asyncpg.connect(
+            database_url,
+            ssl=create_ssl_context() if should_use_ssl(database_url) else False,
+        )
+        rows = await connection.fetch(query, days)
+    except Exception as exc:
+        print(f"Failed to load device online trend: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to load device online trend",
+        ) from exc
+    finally:
+        if "connection" in locals():
+            await connection.close()
+
+    return {
+        "range": f"last_{days}_days",
+        "granularity": granularity,
+        "items": [
+            {
+                "bucket_start": row["bucket_start"].isoformat(),
+                "online_rate": float(row["online_rate"]),
+                "total_count": row["total_count"],
+                "online_count": row["online_count"],
+                "offline_count": row["offline_count"],
+                "fault_count": row["fault_count"],
+                "maintenance_count": row["maintenance_count"],
+                "unknown_count": row["unknown_count"],
+            }
+            for row in rows
+        ],
+    }

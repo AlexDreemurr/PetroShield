@@ -161,12 +161,6 @@ function formatTrendBucket(value, granularity) {
   return granularity === "week" ? `${day}周` : day;
 }
 
-const trendDays = Array.from({ length: 7 }, (_, index) => {
-  const date = new Date();
-  date.setDate(date.getDate() - (6 - index));
-  return formatTrendDay(date);
-});
-
 function buildAlarmTrendLines(items) {
   return [
     {
@@ -186,7 +180,6 @@ function buildAlarmTrendLines(items) {
     },
   ];
 }
-const onlineRateTrend = [94, 93, 95, 92.5, 94.5, 93, 93];
 
 function Card({ title, value, unit, icon, tone, isLoading, hasError }) {
   const displayValue = isLoading || hasError ? "--" : value;
@@ -587,7 +580,7 @@ function MultiLineChart({ lines }) {
       ref={svgRef}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="最近7天告警等级趋势曲线"
+      aria-label="告警等级趋势曲线"
       onMouseLeave={() => setHoveredPoint(null)}
     >
       {tickValues.map((value) => {
@@ -666,58 +659,100 @@ function MultiLineChart({ lines }) {
   );
 }
 
-function SingleLineChart({ values }) {
-  const width = 420;
-  const height = 150;
-  const padding = 18;
-  const minValue = 70;
-  const maxValue = 100;
-  const points = values
-    .map((value, index) => {
-      const x = padding + (index / (values.length - 1)) * (width - padding * 2);
-      const y =
-        height -
-        padding -
-        ((value - minValue) / (maxValue - minValue)) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
+function DeviceOnlineRateChart({ items }) {
+  const [hoveredPoint, setHoveredPoint] = useState(null);
+  const svgRef = useRef(null);
+  const [chartSize, setChartSize] = useState({ width: 420, height: 150 });
+  const { width, height } = chartSize;
+  const padding = { top: 8, right: 8, bottom: 6, left: 30 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const getX = (index) =>
+    padding.left + ((index + 0.5) / Math.max(items.length, 1)) * plotWidth;
+  const getY = (value) =>
+    height - padding.bottom - (Number(value) / 100) * plotHeight;
+  const points = items.map((item, index) => ({
+    ...item,
+    x: getX(index),
+    y: getY(item.online_rate),
+  }));
+
+  useEffect(() => {
+    const svg = svgRef.current;
+
+    if (!svg) {
+      return undefined;
+    }
+
+    const updateSize = () => {
+      const bounds = svg.getBoundingClientRect();
+      if (bounds.width > 0 && bounds.height > 0) {
+        setChartSize({ width: bounds.width, height: bounds.height });
+      }
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
+
+  const tooltipWidth = 108;
+  const tooltipHeight = 66;
+  const tooltipX = hoveredPoint
+    ? Math.min(
+        Math.max(hoveredPoint.x - tooltipWidth / 2, padding.left),
+        width - padding.right - tooltipWidth
+      )
+    : 0;
+  const tooltipY = hoveredPoint
+    ? Math.min(
+        Math.max(hoveredPoint.y - tooltipHeight - 5, padding.top),
+        height - padding.bottom - tooltipHeight
+      )
+    : 0;
 
   return (
-    <ChartSvg viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-      {[70, 80, 90, 100].map((value) => {
-        const y =
-          height -
-          padding -
-          ((value - minValue) / (maxValue - minValue)) * (height - padding * 2);
+    <ChartSvg
+      ref={svgRef}
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label="设备在线率趋势曲线"
+      onMouseLeave={() => setHoveredPoint(null)}
+    >
+      {[0, 25, 50, 75, 100].map((value) => {
+        const y = getY(value);
         return (
-          <GridLine
-            key={value}
-            x1={padding}
-            x2={width - padding}
-            y1={y}
-            y2={y}
-          />
+          <React.Fragment key={value}>
+            <GridLine x1={padding.left} x2={width - padding.right} y1={y} y2={y} />
+            <ChartYAxisLabel x={padding.left - 5} y={y + 3}>{value}</ChartYAxisLabel>
+          </React.Fragment>
         );
       })}
-      <polyline
-        points={points}
-        fill="none"
-        stroke={dashboardPalette.blue}
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {values.map((value, index) => {
-        const x =
-          padding + (index / (values.length - 1)) * (width - padding * 2);
-        const y =
-          height -
-          padding -
-          ((value - minValue) / (maxValue - minValue)) * (height - padding * 2);
-
-        return <ChartDot key={`${value}-${index}`} cx={x} cy={y} r="4" />;
-      })}
+      <ChartYAxis x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} />
+      <ChartCurve d={buildSmoothPath(points)} fill="none" stroke={dashboardPalette.blue} />
+      {points.map((point, index) => (
+        <TrendPoint
+          key={`${point.bucket_start}-${index}`}
+          cx={point.x}
+          cy={point.y}
+          r="9"
+          tabIndex="0"
+          onMouseEnter={() => setHoveredPoint(point)}
+          onFocus={() => setHoveredPoint(point)}
+          onBlur={() => setHoveredPoint(null)}
+        >
+          <title>{`在线率 ${point.online_rate}%`}</title>
+        </TrendPoint>
+      ))}
+      {hoveredPoint ? (
+        <DeviceChartTooltip transform={`translate(${tooltipX} ${tooltipY})`}>
+          <rect width={tooltipWidth} height={tooltipHeight} rx="5" />
+          <text x="8" y="15">在线率：{hoveredPoint.online_rate}%</text>
+          <text x="8" y="29">在线：{hoveredPoint.online_count}/{hoveredPoint.total_count}</text>
+          <text x="8" y="43">离线：{hoveredPoint.offline_count}　故障：{hoveredPoint.fault_count}</text>
+          <text x="8" y="57">维护：{hoveredPoint.maintenance_count}　未知：{hoveredPoint.unknown_count}</text>
+        </DeviceChartTooltip>
+      ) : null}
     </ChartSvg>
   );
 }
@@ -741,7 +776,7 @@ function AlarmTrendCard({
     : hasError
     ? "告警趋势加载失败"
     : items.length === 0
-    ? "近7天暂无告警数据"
+    ? "当前时间范围暂无告警数据"
     : null;
 
   return (
@@ -754,6 +789,8 @@ function AlarmTrendCard({
             value={rangeDays}
             onChange={(event) => onRangeDaysChange(Number(event.target.value))}
           >
+            <option value="1">近1天</option>
+            <option value="3">近3天</option>
             <option value="7">近7天</option>
             <option value="30">近30天</option>
           </TrendFilterSelect>
@@ -905,28 +942,56 @@ function HealthHeatmapCard({
   );
 }
 
-function DeviceOnlineTrendCard({ currentRate }) {
-  const values = [...onlineRateTrend.slice(0, -1), Number(currentRate ?? 93)];
+function DeviceOnlineTrendCard({
+  items,
+  isLoading,
+  hasError,
+  rangeDays,
+  granularity,
+  onRangeDaysChange,
+  onGranularityChange,
+}) {
+  const labels = items.map((item) =>
+    formatTrendBucket(item.bucket_start, granularity)
+  );
+  const labelInterval = Math.max(1, Math.ceil(labels.length / 7));
+  const statusMessage = isLoading
+    ? "设备在线率趋势加载中..."
+    : hasError
+      ? "设备在线率趋势加载失败"
+      : items.length === 0
+        ? "当前时间范围暂无设备状态数据"
+        : null;
 
   return (
     <DashboardSection
       title="设备在线率趋势"
       action={
         <SmallFilters>
-          <SmallFilter>近7天</SmallFilter>
-          <SmallFilter>按日</SmallFilter>
+          <TrendFilterSelect aria-label="设备趋势时间范围" value={rangeDays} onChange={(event) => onRangeDaysChange(Number(event.target.value))}>
+            <option value="1">近1天</option>
+            <option value="3">近3天</option>
+            <option value="7">近7天</option>
+            <option value="30">近30天</option>
+          </TrendFilterSelect>
+          <TrendFilterSelect aria-label="设备趋势聚合粒度" value={granularity} onChange={(event) => onGranularityChange(event.target.value)}>
+            <option value="day">按日</option>
+            <option value="week">按周</option>
+          </TrendFilterSelect>
         </SmallFilters>
       }
     >
       <ChartPanelBody>
         <ChartCanvas>
-          <SingleLineChart values={values} />
+          {statusMessage ? <ChartStatusMessage>{statusMessage}</ChartStatusMessage> : <DeviceOnlineRateChart items={items} />}
         </ChartCanvas>
-        <ChartAxis>
-          {trendDays.map((day) => (
-            <span key={day}>{day}</span>
+        <AlarmChartAxis $count={Math.max(labels.length, 1)}>
+          {labels.map((label, index) => (
+            <span key={`${label}-${index}`}>
+              {index % labelInterval === 0 || index === labels.length - 1 ? label : ""}
+            </span>
           ))}
-        </ChartAxis>
+        </AlarmChartAxis>
       </ChartPanelBody>
     </DashboardSection>
   );
@@ -949,6 +1014,11 @@ function Dashboard() {
   const [isPersonHealthLoading, setIsPersonHealthLoading] = useState(true);
   const [personHealthRangeDays, setPersonHealthRangeDays] = useState(7);
   const [personHealthGranularity, setPersonHealthGranularity] = useState("day");
+  const [deviceOnlineTrend, setDeviceOnlineTrend] = useState([]);
+  const [deviceOnlineTrendHasError, setDeviceOnlineTrendHasError] = useState(false);
+  const [isDeviceOnlineTrendLoading, setIsDeviceOnlineTrendLoading] = useState(true);
+  const [deviceOnlineTrendRangeDays, setDeviceOnlineTrendRangeDays] = useState(7);
+  const [deviceOnlineTrendGranularity, setDeviceOnlineTrendGranularity] = useState("day");
 
   useEffect(() => {
     let ignore = false;
@@ -1099,6 +1169,42 @@ function Dashboard() {
     };
   }, [personHealthGranularity, personHealthRangeDays]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadDeviceOnlineTrend() {
+      try {
+        setIsDeviceOnlineTrendLoading(true);
+        setDeviceOnlineTrendHasError(false);
+        const response = await fetch(
+          `${API_BASE_URL}/dashboard/device-online-trend?days=${deviceOnlineTrendRangeDays}&granularity=${deviceOnlineTrendGranularity}`
+        );
+        if (!response.ok) {
+          throw new Error("Failed to load device online trend");
+        }
+        const data = await response.json();
+        if (!ignore) {
+          setDeviceOnlineTrend(data.items ?? []);
+        }
+      } catch {
+        if (!ignore) {
+          setDeviceOnlineTrendHasError(true);
+        }
+      } finally {
+        if (!ignore) {
+          setIsDeviceOnlineTrendLoading(false);
+        }
+      }
+    }
+
+    loadDeviceOnlineTrend();
+    const intervalId = window.setInterval(loadDeviceOnlineTrend, 30000);
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, [deviceOnlineTrendGranularity, deviceOnlineTrendRangeDays]);
+
   return (
     <Wrapper>
       <CardGrid>
@@ -1160,7 +1266,15 @@ function Dashboard() {
           onRangeDaysChange={setPersonHealthRangeDays}
           onGranularityChange={setPersonHealthGranularity}
         />
-        <DeviceOnlineTrendCard currentRate={metrics?.device_online_rate} />
+        <DeviceOnlineTrendCard
+          items={deviceOnlineTrend}
+          isLoading={isDeviceOnlineTrendLoading}
+          hasError={deviceOnlineTrendHasError}
+          rangeDays={deviceOnlineTrendRangeDays}
+          granularity={deviceOnlineTrendGranularity}
+          onRangeDaysChange={setDeviceOnlineTrendRangeDays}
+          onGranularityChange={setDeviceOnlineTrendGranularity}
+        />
       </BottomGrid>
     </Wrapper>
   );
@@ -1816,18 +1930,6 @@ const SmallFilters = styled.div`
   gap: 8px;
 `;
 
-const SmallFilter = styled.span`
-  min-width: 50px;
-  border: 1px solid hsl(220 13% 88%);
-  border-radius: 6px;
-  padding: 3px 8px;
-  color: hsl(218 10% 45%);
-  background: hsl(0 0% 100%);
-  text-align: center;
-  font-size: ${FONT_SIZES.dashboardFilter};
-  font-weight: 500;
-`;
-
 const TrendFilterSelect = styled.select`
   min-width: 50px;
   border: 1px solid hsl(220 13% 82%);
@@ -1948,10 +2050,18 @@ const ChartTooltip = styled.g`
   }
 `;
 
-const ChartDot = styled.circle`
-  fill: ${dashboardPalette.blue};
-  stroke: white;
-  stroke-width: 2;
+const DeviceChartTooltip = styled.g`
+  pointer-events: none;
+
+  rect {
+    fill: hsl(220 22% 18% / 0.96);
+  }
+
+  text {
+    fill: white;
+    font-size: ${FONT_SIZES.dashboardAxis};
+    text-anchor: start;
+  }
 `;
 
 const ChartAxis = styled.div`
@@ -2007,7 +2117,7 @@ const HeatmapCell = styled.div`
   background: ${(p) =>
     p.$isEmpty
       ? "hsl(220 13% 92%)"
-      : `hsl(${210 - p.$strength * 2} 82% 55%)`};
+      : `hsl(${120 - p.$strength * 1.2} 82% 50%)`};
   cursor: help;
 
   &:focus {
@@ -2039,9 +2149,9 @@ const HealthLegendGradient = styled.span`
   border-radius: 999px;
   background: linear-gradient(
     90deg,
-    hsl(210 82% 55%),
-    hsl(105 82% 55%),
-    hsl(10 82% 55%)
+    hsl(120 82% 45%),
+    hsl(60 92% 50%),
+    hsl(0 82% 52%)
   );
 `;
 

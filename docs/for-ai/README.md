@@ -76,7 +76,7 @@ supabase db reset
 supabase db push
 ```
 
-`db reset` 会应用迁移并执行 `supabase/seed.sql`。`db push` 会影响远程数据库，必须由用户自己执行，详见第 10 节。
+`db reset` 会应用迁移并按 `config.toml` 顺序执行 `supabase/seeds/` 中的 seed。`db push` 会影响远程数据库，必须由用户自己执行，详见第 10 节。
 
 ## 3. 仓库结构与职责
 
@@ -97,10 +97,14 @@ petroshield/
 ├─ database/supabase/
 │  ├─ migrations/20260710000100_init_core_tables.sql
 │  ├─ migrations/20260712000200_add_person_health_observation.sql
-│  ├─ seed.sql                          # 8 张业务表的基础模拟数据
-│  ├─ seed_alarms.sql                   # 相对当前日期生成的告警趋势模拟数据
-│  ├─ seed_person_health.sql             # 最近7天人员健康观测模拟数据
+│  ├─ migrations/20260712000300_add_device_realtime_observation.sql
+│  ├─ seeds/
+│  │  ├─ seed.sql                       # 基础模拟数据
+│  │  ├─ seed_alarms.sql                # 相对当前日期生成的告警趋势模拟数据
+│  │  ├─ seed_person_health.sql          # 最近7天人员健康观测模拟数据
+│  │  └─ seed_device_realtime_observation.sql # 最近7天设备状态观测模拟数据
 │  ├─ backfill_person_health_observation.sql # 现有人员健康快照一次性回填
+│  ├─ backfill_device_realtime_observation.sql # 现有设备状态快照一次性回填
 │  └─ config.toml
 └─ docs/for-ai/
    ├─ README.md                         # 本文
@@ -159,11 +163,11 @@ petroshield/
 - 实时告警列表：最多请求 20 条，前端每页固定显示 5 个槽位。
 - 告警趋势分析：查询最近 7 个自然日，按日统计重大、严重、一般告警。
 - 人员健康分析：按区域和时间桶展示人员健康观测中的中高风险人员比例。
+- 设备在线率趋势：按历史设备状态观测计算每日或每周在线率。
 
 ### 仍为前端静态原型的内容
 
 - 厂区人员与设备分布地图及标记。
-- 设备在线率趋势历史数据（仅末端会参考当前在线率）。
 - 顶部指标卡下方的“较昨日”变化值。
 
 不要把静态原型数据描述为数据库实时数据。后续接入时，应先确定新的后端契约，再替换相应常量。
@@ -294,6 +298,16 @@ GET /api/v1/dashboard/person-health-analysis?days=7&granularity=day
 - 区域来自启用的 `area.name`；无观测数据的区域和日期也会返回零值。
 - `risk_ratio` 是该格中关注、限制、禁入、异常或中高健康风险人员占观测人员的比例。
 
+设备在线率趋势：
+
+```http
+GET /api/v1/dashboard/device-online-trend?days=7&granularity=day
+```
+
+- 支持最近 1、3、7、30 天以及按日、按周聚合。
+- 每个时间桶对每台已登记设备取截至桶结束时的最后一条状态观测。
+- 在线率分母为当时已登记设备总数；故障、维护、离线和未知均不计为在线。
+
 后端 CORS 当前允许：
 
 - `http://localhost:5173`
@@ -304,7 +318,7 @@ GET /api/v1/dashboard/person-health-analysis?days=7&granularity=day
 
 ## 8. 数据库结构摘要
 
-当前迁移创建 9 张业务表：
+当前迁移创建 10 张业务表：
 
 | 表 | 作用 |
 | --- | --- |
@@ -313,12 +327,13 @@ GET /api/v1/dashboard/person-health-analysis?days=7&granularity=day
 | `person` | 人员基础信息及设备绑定 |
 | `person_health_observation` | 人员健康字段的历史观测，最新一条同步到 person |
 | `device_realtime` | 设备实时状态，一对一扩展 `device` |
+| `device_realtime_observation` | 设备实时状态历史观测，最新一条同步到 device_realtime |
 | `device_maintenance` | 设备维护记录 |
 | `device_compliance` | 设备合规与年检记录 |
 | `alarm` | 人员或设备产生的告警事件 |
 | `position` | 人员实时及历史定位数据 |
 
-“设备”被拆为基础、实时、维护、合规四张表，用于分离不同更新频率、生命周期和一对多记录。完整字段、外键、检查约束、状态值与索引请以 [`database-schema.md`](./database-schema.md) 和迁移 SQL 为准。
+“设备”被拆为基础、实时快照、实时历史、维护、合规五张表，用于分离不同更新频率、生命周期和一对多记录。完整字段、外键、检查约束、状态值与索引请以 [`database-schema.md`](./database-schema.md) 和迁移 SQL 为准。
 
 关键关系：
 
@@ -326,6 +341,7 @@ GET /api/v1/dashboard/person-health-analysis?days=7&granularity=day
 - `person.device_id -> device.id`
 - `person_health_observation.person_id -> person.id`
 - `device_realtime.device_id -> device.id`，且唯一
+- `device_realtime_observation.device_id -> device.id`
 - `device_maintenance.device_id -> device.id`
 - `device_maintenance.maintainer_id -> person.id`
 - `device_compliance.device_id -> device.id`
@@ -333,7 +349,7 @@ GET /api/v1/dashboard/person-health-analysis?days=7&granularity=day
 - `alarm.device_id -> device.id`，可空
 - `position.person_id -> person.id`
 
-`database/supabase/seed.sql` 已生成基础模拟数据；`seed_alarms.sql` 使用相对系统当前日期生成最近 7 天的告警趋势数据；`seed_person_health.sql` 为 8 名模拟人员生成最近 7 天共 56 条健康观测。`config.toml` 会在重置数据库时按顺序执行三个文件。现有远端人员首次迁移后，应单独执行 `backfill_person_health_observation.sql` 建立初始健康历史。修改 schema 后必须同步检查 seed 是否仍能执行。
+`database/supabase/seeds/seed.sql` 已生成 25 名人员和 16 台设备等基础模拟数据；`seed_alarms.sql` 生成最近 7 天共 50 条动态告警；`seed_person_health.sql` 生成 175 条健康观测；`seed_device_realtime_observation.sql` 生成 112 条设备状态观测。`config.toml` 会按顺序执行四个文件。现有远端数据首次迁移后，应分别执行人员健康和设备实时状态回填脚本。修改 schema 后必须同步检查 seed 是否仍能执行。
 
 ## 9. 常见问题与排查顺序
 

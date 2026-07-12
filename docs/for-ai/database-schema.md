@@ -4,6 +4,7 @@
 
 - `database/supabase/migrations/20260710000100_init_core_tables.sql`
 - `database/supabase/migrations/20260712000200_add_person_health_observation.sql`
+- `database/supabase/migrations/20260712000300_add_device_realtime_observation.sql`
 - 需求分析文档中的 `person`、`alarm`、`position`、`area`、`device` 原型
 
 后续约定：生成迁移文件或 seed 文件后，默认只提交到本地文件，不直接执行 `supabase db push`。
@@ -17,6 +18,7 @@
 | `area` | 电子围栏、风险区域、作业区域 |
 | `device` | 设备基础档案 |
 | `device_realtime` | 设备实时状态 |
+| `device_realtime_observation` | 设备实时状态历史观测及最新快照来源 |
 | `device_maintenance` | 设备运维管理 |
 | `device_compliance` | 设备合规年检 |
 | `person` | 厂区人员基础信息、状态、培训、健康与安全行为 |
@@ -31,6 +33,7 @@ erDiagram
   AREA ||--o{ DEVICE : "region_id"
   DEVICE ||--o{ PERSON : "device_id"
   DEVICE ||--|| DEVICE_REALTIME : "device_id"
+  DEVICE ||--o{ DEVICE_REALTIME_OBSERVATION : "device_id"
   DEVICE ||--|| DEVICE_MAINTENANCE : "device_id"
   DEVICE ||--|| DEVICE_COMPLIANCE : "device_id"
   PERSON ||--o{ DEVICE_MAINTENANCE : "maintainer_id"
@@ -112,6 +115,31 @@ erDiagram
 索引：
 
 - `idx_device_realtime_status(status)`
+
+## device_realtime_observation
+
+保存 `device_realtime` 相同业务字段的历史版本。每次观测变化后，触发器会选择该设备时间最新的一条同步到 `device_realtime`；删除最新记录时自动回退到上一条。
+
+| 字段 | 类型 | 约束/默认值 | 说明 |
+| --- | --- | --- | --- |
+| `id` | `text` | PK, default UUID text | 状态观测唯一标识 |
+| `device_id` | `text` | NOT NULL, FK -> `device(id)`, ON DELETE CASCADE | 关联设备 |
+| `observation_time` | `timestamptz` | NOT NULL | 状态观测时间 |
+| `status` | `text` | NOT NULL | online / offline / fault / maintenance |
+| `battery` | `double precision` | NULL, 0 到 100 | 电量 |
+| `signal_strength` | `double precision` | NULL | 信号强度 |
+| `cpu_usage` | `double precision` | NULL, 0 到 100 | CPU 使用率 |
+| `temperature` | `double precision` | NULL | 设备温度 |
+| `last_heartbeat` | `timestamptz` | NULL | 最后心跳 |
+| `health_score` | `double precision` | NULL, 0 到 100 | 健康评分 |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
+
+约束和索引：
+
+- `unique(device_id, observation_time)`
+- `idx_device_realtime_observation_device_time(device_id, observation_time desc)`
+- `idx_device_realtime_observation_time_status(observation_time desc, status)`
 
 ## device_maintenance
 
@@ -279,22 +307,24 @@ erDiagram
 
 模拟数据文件位于：
 
-- `database/supabase/seed.sql`
-- `database/supabase/seed_alarms.sql`
-- `database/supabase/seed_person_health.sql`
+- `database/supabase/seeds/seed.sql`
+- `database/supabase/seeds/seed_alarms.sql`
+- `database/supabase/seeds/seed_person_health.sql`
+- `database/supabase/seeds/seed_device_realtime_observation.sql`
 - `database/supabase/backfill_person_health_observation.sql`（远端一次性回填，不由 `db reset` 自动执行）
 
 当前 seed 覆盖：
 
 - 4 个区域
-- 8 台设备
-- 8 条设备实时状态
-- 8 名人员
+- 16 台设备
+- 16 条设备实时状态
+- 25 名人员
 - 4 条设备运维记录
 - 4 条设备合规年检记录
 - 6 条基础告警
-- 20 条最近 7 天的动态告警趋势数据
-- 56 条最近 7 天的人员健康观测数据
+- 50 条最近 7 天的动态告警趋势数据
+- 175 条最近 7 天的人员健康观测数据
+- 112 条最近 7 天的设备实时状态观测数据
 - 16 条定位记录
 
 执行方式：

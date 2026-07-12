@@ -165,6 +165,28 @@ on conflict (id) do update set
   region_id = excluded.region_id,
   location = excluded.location;
 
+insert into public.device (
+  id, name, type, category, model, manufacturer, serial_number, install_date, region_id, location
+) values
+  ('dev-uwb-tag-p009', '人员定位标签P009', 'UWB', '感知设备', 'UWB-TAG-5', '华测安全', 'TAG-P009', '2026-03-01 09:00:00+08', 'area-tank-a', '{"x":175.0,"y":138.0,"z":1.2,"zone":"A区储罐围栏"}'::jsonb),
+  ('dev-uwb-tag-p010', '人员定位标签P010', 'UWB', '感知设备', 'UWB-TAG-5', '华测安全', 'TAG-P010', '2026-03-01 09:05:00+08', 'area-pump-c', '{"x":558.0,"y":351.0,"z":1.2,"zone":"C区泵房"}'::jsonb),
+  ('dev-camera-c03', 'C区泵房防爆摄像头03', '摄像头', '安防设备', 'EX-CAM-4K', '海安视觉', 'CAM-C03-2026', '2026-02-10 10:00:00+08', 'area-pump-c', '{"x":575.0,"y":310.0,"z":6.0,"view":"泵房全景"}'::jsonb),
+  ('dev-camera-office01', '办公区智能摄像头01', '摄像头', '安防设备', 'AI-CAM-2K', '海安视觉', 'CAM-O01-2026', '2026-02-12 10:00:00+08', 'area-office', '{"x":70.0,"y":45.0,"z":3.2,"view":"办公区入口"}'::jsonb),
+  ('dev-gas-b02', 'B区有毒气体探测器02', '气体探测器', '感知设备', 'GAS-H2S-80', '安科仪表', 'GAS-B02-2026', '2026-02-15 11:00:00+08', 'area-loading-b', '{"x":410.0,"y":230.0,"z":1.8,"medium":"硫化氢"}'::jsonb),
+  ('dev-temp-c01', 'C区温度传感器01', '温度传感器', '感知设备', 'TEMP-PT100', '安科仪表', 'TEMP-C01-2026', '2026-02-18 08:30:00+08', 'area-pump-c', '{"x":548.0,"y":340.0,"z":1.0,"unit":"℃"}'::jsonb),
+  ('dev-access-b01', 'B区防爆门禁01', '门禁', '安防设备', 'ACCESS-EX-10', '华测安全', 'ACCESS-B01-2026', '2026-02-20 14:00:00+08', 'area-loading-b', '{"x":302.0,"y":188.0,"z":1.4,"gate":"东门"}'::jsonb),
+  ('dev-drone-a01', 'A区巡检无人机01', '无人机', '感知设备', 'UAV-EX-6', '华测安全', 'UAV-A01-2026', '2026-03-02 09:00:00+08', 'area-tank-a', '{"x":190.0,"y":145.0,"z":20.0,"dock":"A区机库"}'::jsonb)
+on conflict (id) do update set
+  name = excluded.name,
+  type = excluded.type,
+  category = excluded.category,
+  model = excluded.model,
+  manufacturer = excluded.manufacturer,
+  serial_number = excluded.serial_number,
+  install_date = excluded.install_date,
+  region_id = excluded.region_id,
+  location = excluded.location;
+
 insert into public.person (
   id, name, gender, type, department, position, company, id_card, phone,
   device_id, device_type, bind_time, location_zone, status, risk_level,
@@ -488,6 +510,83 @@ on conflict (id) do update set
   safety_score = excluded.safety_score,
   remark = excluded.remark;
 
+with new_person (
+  id, name, gender, type, department, position, company, location_zone,
+  status, risk_level, access_status, health_status, health_risk_level,
+  exposure_level, device_id
+) as (
+  values
+    ('person-009','郑凯','男','员工','生产一部','操作工','石化厂','A区储罐围栏','正常','低','允许','正常','低','化学','dev-uwb-tag-p009'),
+    ('person-010','何静','女','员工','设备部','维修工程师','石化厂','C区泵房','正常','低','允许','正常','低','噪声','dev-uwb-tag-p010'),
+    ('person-011','刘洋','男','员工','HSE部','安全员','石化厂','B区装卸作业区','正常','低','允许','正常','低','化学',null),
+    ('person-012','黄敏','女','员工','仪表部','仪表工','石化厂','C区泵房','正常','中','允许','关注','中','噪声',null),
+    ('person-013','马超','男','承包商','检维修外协','焊工','安维检修有限公司','B区装卸作业区','风险','中','限制','关注','中','粉尘',null),
+    ('person-014','许芳','女','员工','生产二部','中控员','石化厂','综合办公区','正常','低','允许','正常','低',null,null),
+    ('person-015','郭鹏','男','员工','生产一部','巡检员','石化厂','A区储罐围栏','异常','高','限制','限制','高','化学',null),
+    ('person-016','冯雪','女','访客','访客','审计员','华东安全咨询','综合办公区','正常','低','允许','正常','低',null,null),
+    ('person-017','宋涛','男','承包商','工程外协','架子工','中联工程有限公司','B区装卸作业区','正常','中','限制','正常','中','粉尘',null),
+    ('person-018','邓丽','女','员工','质检部','化验员','石化厂','综合办公区','正常','低','允许','关注','中','化学',null),
+    ('person-019','曹宇','男','员工','设备部','机械工程师','石化厂','C区泵房','正常','低','允许','正常','低','噪声',null),
+    ('person-020','彭佳','女','员工','HSE部','职业健康专员','石化厂','A区储罐围栏','正常','低','允许','正常','低','化学',null),
+    ('person-021','唐峰','男','承包商','物流外协','装卸工','恒运物流有限公司','B区装卸作业区','风险','高','限制','限制','高','粉尘',null),
+    ('person-022','叶琳','女','员工','生产二部','工艺工程师','石化厂','A区储罐围栏','正常','低','允许','正常','低','化学',null),
+    ('person-023','魏强','男','员工','保卫部','门禁管理员','石化厂','综合办公区','正常','低','允许','正常','低',null,null),
+    ('person-024','沈悦','女','承包商','检维修外协','电工','安维检修有限公司','C区泵房','正常','中','限制','关注','中','噪声',null),
+    ('person-025','韩东','男','员工','生产一部','班组长','石化厂','A区储罐围栏','正常','低','允许','正常','低','化学',null)
+)
+insert into public.person (
+  id, name, gender, type, department, position, company, id_card, phone,
+  device_id, device_type, bind_time, location_zone, status, risk_level,
+  access_status, last_active_time, safety_tag, training_status,
+  training_score, last_training_time, certificate_status, health_status,
+  health_risk_level, last_medical_check, occupational_disease_flag,
+  exposure_level, performance_score, violation_count, reward_count,
+  near_miss_count, safety_score, remark
+)
+select
+  np.id, np.name, np.gender, np.type, np.department, np.position, np.company,
+  'MOCK-' || upper(np.id),
+  '13800000' || right(np.id, 3),
+  np.device_id,
+  case when np.device_id is not null then 'UWB' end,
+  case when np.device_id is not null then '2026-03-02 08:00:00+08'::timestamptz end,
+  np.location_zone, np.status, np.risk_level, np.access_status,
+  now() - make_interval(mins => right(np.id, 3)::integer),
+  case when np.risk_level in ('高','极高') then '高危作业' else '普通作业' end,
+  case when np.type = '访客' then '培训中' else '合格' end,
+  (70 + right(np.id, 3)::integer % 27)::double precision,
+  now() - make_interval(days => 15 + right(np.id, 3)::integer),
+  case when np.type = '访客' then '临时' else '有效' end,
+  np.health_status, np.health_risk_level,
+  now() - make_interval(days => 30 + right(np.id, 3)::integer * 2),
+  np.health_risk_level = '高',
+  np.exposure_level,
+  (68 + right(np.id, 3)::integer % 29)::double precision,
+  case when np.status in ('风险','异常') then 1 else 0 end,
+  case when np.type = '员工' then 1 else 0 end,
+  case when np.risk_level in ('中','高') then 1 else 0 end,
+  (70 + right(np.id, 3)::integer % 28)::double precision,
+  '扩展模拟人员数据'
+from new_person np
+on conflict (id) do update set
+  name = excluded.name, gender = excluded.gender, type = excluded.type,
+  department = excluded.department, position = excluded.position,
+  company = excluded.company, id_card = excluded.id_card, phone = excluded.phone,
+  device_id = excluded.device_id, device_type = excluded.device_type,
+  bind_time = excluded.bind_time, location_zone = excluded.location_zone,
+  status = excluded.status, risk_level = excluded.risk_level,
+  access_status = excluded.access_status, last_active_time = excluded.last_active_time,
+  safety_tag = excluded.safety_tag, training_status = excluded.training_status,
+  training_score = excluded.training_score, last_training_time = excluded.last_training_time,
+  certificate_status = excluded.certificate_status, health_status = excluded.health_status,
+  health_risk_level = excluded.health_risk_level,
+  last_medical_check = excluded.last_medical_check,
+  occupational_disease_flag = excluded.occupational_disease_flag,
+  exposure_level = excluded.exposure_level, performance_score = excluded.performance_score,
+  violation_count = excluded.violation_count, reward_count = excluded.reward_count,
+  near_miss_count = excluded.near_miss_count, safety_score = excluded.safety_score,
+  remark = excluded.remark;
+
 insert into public.device_realtime (
   device_id, status, battery, signal_strength, cpu_usage, temperature, last_heartbeat, health_score
 ) values
@@ -499,6 +598,26 @@ insert into public.device_realtime (
   ('dev-gas-a01', 'online', null, 81.0, 12.0, 34.1, '2026-07-10 10:59:12+08', 94.0),
   ('dev-pump-c01', 'maintenance', null, 74.0, 22.0, 58.0, '2026-07-10 10:52:10+08', 72.0),
   ('dev-meter-c01', 'online', null, 83.0, 8.0, 39.2, '2026-07-10 10:59:05+08', 90.0)
+on conflict (device_id) do update set
+  status = excluded.status,
+  battery = excluded.battery,
+  signal_strength = excluded.signal_strength,
+  cpu_usage = excluded.cpu_usage,
+  temperature = excluded.temperature,
+  last_heartbeat = excluded.last_heartbeat,
+  health_score = excluded.health_score;
+
+insert into public.device_realtime (
+  device_id, status, battery, signal_strength, cpu_usage, temperature, last_heartbeat, health_score
+) values
+  ('dev-uwb-tag-p009', 'online', 82.0, 76.0, null, 31.0, now() - interval '20 seconds', 90.0),
+  ('dev-uwb-tag-p010', 'online', 71.0, 69.0, null, 32.1, now() - interval '35 seconds', 86.0),
+  ('dev-camera-c03', 'online', null, 84.0, 38.0, 42.5, now() - interval '18 seconds', 91.0),
+  ('dev-camera-office01', 'online', null, 90.0, 31.0, 38.2, now() - interval '12 seconds', 95.0),
+  ('dev-gas-b02', 'alarm', null, 72.0, 15.0, 35.6, now() - interval '25 seconds', 75.0),
+  ('dev-temp-c01', 'online', null, 79.0, 9.0, 41.8, now() - interval '22 seconds', 88.0),
+  ('dev-access-b01', 'offline', null, 0.0, 0.0, 33.0, now() - interval '18 minutes', 52.0),
+  ('dev-drone-a01', 'maintenance', 45.0, 61.0, 28.0, 37.4, now() - interval '4 minutes', 68.0)
 on conflict (device_id) do update set
   status = excluded.status,
   battery = excluded.battery,
