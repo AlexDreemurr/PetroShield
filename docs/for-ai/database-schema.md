@@ -3,6 +3,7 @@
 本文档记录当前 Supabase 初始化迁移中的核心表结构，来源于：
 
 - `database/supabase/migrations/20260710000100_init_core_tables.sql`
+- `database/supabase/migrations/20260712000200_add_person_health_observation.sql`
 - 需求分析文档中的 `person`、`alarm`、`position`、`area`、`device` 原型
 
 后续约定：生成迁移文件或 seed 文件后，默认只提交到本地文件，不直接执行 `supabase db push`。
@@ -19,6 +20,7 @@
 | `device_maintenance` | 设备运维管理 |
 | `device_compliance` | 设备合规年检 |
 | `person` | 厂区人员基础信息、状态、培训、健康与安全行为 |
+| `person_health_observation` | 人员健康字段历史观测及最新快照来源 |
 | `alarm` | 告警事件 |
 | `position` | 人员实时与历史定位 |
 
@@ -33,6 +35,7 @@ erDiagram
   DEVICE ||--|| DEVICE_COMPLIANCE : "device_id"
   PERSON ||--o{ DEVICE_MAINTENANCE : "maintainer_id"
   PERSON ||--o{ ALARM : "person_id"
+  PERSON ||--o{ PERSON_HEALTH_OBSERVATION : "person_id"
   DEVICE ||--o{ ALARM : "device_id"
   PERSON ||--o{ POSITION : "person_id"
 ```
@@ -198,6 +201,30 @@ erDiagram
 - `idx_person_type_status(type, status)`
 - `idx_person_department(department)`
 
+## person_health_observation
+
+保存 `person` 表健康字段的历史版本。一个人员可以有多条观测；数据库触发器会按 `observation_time` 选择最新一条，并同步回 `person` 的健康快照字段。`location_zone` 只记录观测时的区域上下文，不参与回写人员当前位置。
+
+| 字段 | 类型 | 约束/默认值 | 说明 |
+| --- | --- | --- | --- |
+| `id` | `text` | PK, default UUID text | 健康观测唯一标识 |
+| `person_id` | `text` | NOT NULL, FK -> `person(id)`, ON DELETE CASCADE | 关联人员 |
+| `observation_time` | `timestamptz` | NOT NULL | 观测记录或生效时间 |
+| `health_status` | `text` | NULL | 与 `person.health_status` 一致 |
+| `health_risk_level` | `text` | NULL | 与 `person.health_risk_level` 一致 |
+| `last_medical_check` | `timestamptz` | NULL | 与 `person.last_medical_check` 一致 |
+| `occupational_disease_flag` | `boolean` | NULL | 与 `person.occupational_disease_flag` 一致 |
+| `exposure_level` | `text` | NULL | 与 `person.exposure_level` 一致 |
+| `location_zone` | `text` | NULL | 观测时所在区域快照，与 `person.location_zone` 值域一致 |
+| `create_time` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
+| `update_time` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
+
+约束和索引：
+
+- `unique(person_id, observation_time)`
+- `idx_person_health_observation_person_time(person_id, observation_time desc)`
+- `idx_person_health_observation_time_zone(observation_time desc, location_zone)`
+
 ## alarm
 
 系统产生的所有告警事件。
@@ -254,6 +281,8 @@ erDiagram
 
 - `database/supabase/seed.sql`
 - `database/supabase/seed_alarms.sql`
+- `database/supabase/seed_person_health.sql`
+- `database/supabase/backfill_person_health_observation.sql`（远端一次性回填，不由 `db reset` 自动执行）
 
 当前 seed 覆盖：
 
@@ -265,6 +294,7 @@ erDiagram
 - 4 条设备合规年检记录
 - 6 条基础告警
 - 20 条最近 7 天的动态告警趋势数据
+- 56 条最近 7 天的人员健康观测数据
 - 16 条定位记录
 
 执行方式：

@@ -187,20 +187,6 @@ function buildAlarmTrendLines(items) {
   ];
 }
 const onlineRateTrend = [94, 93, 95, 92.5, 94.5, 93, 93];
-const heatmapRows = [
-  "罐区A",
-  "罐区B",
-  "催化裂化区",
-  "加氢装置区",
-  "常减压装置区",
-];
-const heatmapValues = [
-  [28, 35, 46, 60, 38, 55, 31],
-  [42, 62, 36, 41, 68, 50, 44],
-  [34, 49, 56, 37, 58, 72, 47],
-  [26, 32, 40, 48, 35, 43, 30],
-  [23, 30, 52, 29, 44, 37, 33],
-];
 
 function Card({ title, value, unit, icon, tone, isLoading, hasError }) {
   const displayValue = isLoading || hasError ? "--" : value;
@@ -812,37 +798,108 @@ function AlarmTrendCard({
   );
 }
 
-function HealthHeatmapCard() {
+function HealthHeatmapCard({
+  data,
+  isLoading,
+  hasError,
+  rangeDays,
+  granularity,
+  onRangeDaysChange,
+  onGranularityChange,
+}) {
+  const zones = data?.zones ?? [];
+  const buckets = data?.buckets ?? [];
+  const itemByCell = new Map(
+    (data?.items ?? []).map((item) => [
+      `${item.location_zone}|${item.bucket_start}`,
+      item,
+    ])
+  );
+  const labels = buckets.map((bucket) =>
+    formatTrendBucket(bucket, granularity)
+  );
+  const labelInterval = Math.max(1, Math.ceil(labels.length / 7));
+  const statusMessage = isLoading
+    ? "人员健康分析加载中..."
+    : hasError
+      ? "人员健康分析加载失败"
+      : zones.length === 0 || buckets.length === 0
+        ? "暂无人员健康观测数据"
+        : null;
+
   return (
     <DashboardSection
       title="人员健康分析"
       action={
         <SmallFilters>
-          <SmallFilter>近7天</SmallFilter>
-          <SmallFilter>按日</SmallFilter>
+          <TrendFilterSelect
+            aria-label="健康分析时间范围"
+            value={rangeDays}
+            onChange={(event) => onRangeDaysChange(Number(event.target.value))}
+          >
+            <option value="7">近7天</option>
+            <option value="30">近30天</option>
+          </TrendFilterSelect>
+          <TrendFilterSelect
+            aria-label="健康分析聚合粒度"
+            value={granularity}
+            onChange={(event) => onGranularityChange(event.target.value)}
+          >
+            <option value="day">按日</option>
+            <option value="week">按周</option>
+          </TrendFilterSelect>
         </SmallFilters>
       }
     >
       <ChartPanelBody>
-        <ChartSpacer aria-hidden="true" />
-        <Heatmap>
-          {heatmapRows.map((row, rowIndex) => (
-            <React.Fragment key={row}>
-              <HeatmapLabel>{row}</HeatmapLabel>
-              {heatmapValues[rowIndex].map((value, colIndex) => (
-                <HeatmapCell
-                  key={`${row}-${trendDays[colIndex]}`}
-                  $strength={value}
-                />
-              ))}
-            </React.Fragment>
+        <HealthLegend aria-label="健康风险比例图例">
+          <span>低风险</span>
+          <HealthLegendGradient />
+          <span>高风险</span>
+        </HealthLegend>
+        {statusMessage ? (
+          <ChartStatusMessage>{statusMessage}</ChartStatusMessage>
+        ) : (
+          <Heatmap $count={buckets.length}>
+            {zones.map((zone) => (
+              <React.Fragment key={zone}>
+                <HeatmapLabel title={zone}>{zone}</HeatmapLabel>
+                {buckets.map((bucket) => {
+                  const item = itemByCell.get(`${zone}|${bucket}`);
+                  const observedPeople = Number(item?.observed_people ?? 0);
+                  const riskRatio = Number(item?.risk_ratio ?? 0);
+
+                  return (
+                    <HeatmapCell
+                      key={`${zone}-${bucket}`}
+                      $strength={riskRatio}
+                      $isEmpty={observedPeople === 0}
+                      tabIndex="0"
+                      aria-label={`${zone} ${formatTrendBucket(bucket, granularity)}，观测${observedPeople}人，中风险${item?.medium_risk_people ?? 0}人，高风险${item?.high_risk_people ?? 0}人`}
+                    >
+                      <HeatmapTooltip>
+                        <strong>{zone}</strong>
+                        <span>{formatTrendBucket(bucket, granularity)}</span>
+                        <span>观测人员：{observedPeople}人</span>
+                        <span>中风险：{item?.medium_risk_people ?? 0}人</span>
+                        <span>高风险：{item?.high_risk_people ?? 0}人</span>
+                      </HeatmapTooltip>
+                    </HeatmapCell>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </Heatmap>
+        )}
+        <HealthChartAxis $count={Math.max(buckets.length, 1)}>
+          {labels.map((label, index) => (
+            <span key={`${label}-${index}`}>
+              {index % labelInterval === 0 || index === labels.length - 1
+                ? label
+                : ""}
+            </span>
           ))}
-        </Heatmap>
-        <ChartAxis>
-          {trendDays.map((day) => (
-            <span key={day}>{day}</span>
-          ))}
-        </ChartAxis>
+        </HealthChartAxis>
       </ChartPanelBody>
     </DashboardSection>
   );
@@ -887,6 +944,11 @@ function Dashboard() {
   const [isAlarmTrendLoading, setIsAlarmTrendLoading] = useState(true);
   const [alarmTrendRangeDays, setAlarmTrendRangeDays] = useState(7);
   const [alarmTrendGranularity, setAlarmTrendGranularity] = useState("day");
+  const [personHealthAnalysis, setPersonHealthAnalysis] = useState(null);
+  const [personHealthHasError, setPersonHealthHasError] = useState(false);
+  const [isPersonHealthLoading, setIsPersonHealthLoading] = useState(true);
+  const [personHealthRangeDays, setPersonHealthRangeDays] = useState(7);
+  const [personHealthGranularity, setPersonHealthGranularity] = useState("day");
 
   useEffect(() => {
     let ignore = false;
@@ -997,6 +1059,46 @@ function Dashboard() {
     };
   }, [alarmTrendGranularity, alarmTrendRangeDays]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadPersonHealthAnalysis() {
+      try {
+        setIsPersonHealthLoading(true);
+        setPersonHealthHasError(false);
+        const response = await fetch(
+          `${API_BASE_URL}/dashboard/person-health-analysis?days=${personHealthRangeDays}&granularity=${personHealthGranularity}`
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to load person health analysis");
+        }
+
+        const data = await response.json();
+
+        if (!ignore) {
+          setPersonHealthAnalysis(data);
+        }
+      } catch {
+        if (!ignore) {
+          setPersonHealthHasError(true);
+        }
+      } finally {
+        if (!ignore) {
+          setIsPersonHealthLoading(false);
+        }
+      }
+    }
+
+    loadPersonHealthAnalysis();
+    const intervalId = window.setInterval(loadPersonHealthAnalysis, 30000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, [personHealthGranularity, personHealthRangeDays]);
+
   return (
     <Wrapper>
       <CardGrid>
@@ -1049,7 +1151,15 @@ function Dashboard() {
           onRangeDaysChange={setAlarmTrendRangeDays}
           onGranularityChange={setAlarmTrendGranularity}
         />
-        <HealthHeatmapCard />
+        <HealthHeatmapCard
+          data={personHealthAnalysis}
+          isLoading={isPersonHealthLoading}
+          hasError={personHealthHasError}
+          rangeDays={personHealthRangeDays}
+          granularity={personHealthGranularity}
+          onRangeDaysChange={setPersonHealthRangeDays}
+          onGranularityChange={setPersonHealthGranularity}
+        />
         <DeviceOnlineTrendCard currentRate={metrics?.device_online_rate} />
       </BottomGrid>
     </Wrapper>
@@ -1701,10 +1811,6 @@ const ChartPanelContent = styled.div`
   padding-top: 4px;
 `;
 
-const ChartSpacer = styled.div`
-  min-height: 0;
-`;
-
 const SmallFilters = styled.div`
   display: flex;
   gap: 8px;
@@ -1877,7 +1983,10 @@ const Heatmap = styled.div`
   min-height: 0;
   align-self: center;
   display: grid;
-  grid-template-columns: 88px repeat(7, minmax(0, 1fr));
+  grid-template-columns: 88px repeat(
+      ${(p) => p.$count},
+      minmax(0, 1fr)
+    );
   gap: 4px;
 `;
 
@@ -1892,9 +2001,90 @@ const HeatmapLabel = styled.div`
 `;
 
 const HeatmapCell = styled.div`
+  position: relative;
   height: 20px;
   border-radius: 3px;
-  background: hsl(214 92% ${(p) => 96 - p.$strength * 0.44}%);
+  background: ${(p) =>
+    p.$isEmpty
+      ? "hsl(220 13% 92%)"
+      : `hsl(${210 - p.$strength * 2} 82% 55%)`};
+  cursor: help;
+
+  &:focus {
+    outline: 2px solid hsl(214 92% 35%);
+    outline-offset: 1px;
+  }
+
+  &:hover > div,
+  &:focus > div {
+    visibility: visible;
+    opacity: 1;
+    transform: translate(-50%, -4px);
+  }
+`;
+
+const HealthLegend = styled.div`
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+  color: hsl(218 10% 52%);
+  font-size: ${FONT_SIZES.dashboardChartLegend};
+`;
+
+const HealthLegendGradient = styled.span`
+  width: 54px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    hsl(210 82% 55%),
+    hsl(105 82% 55%),
+    hsl(10 82% 55%)
+  );
+`;
+
+const HeatmapTooltip = styled.div`
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  z-index: 20;
+  width: 132px;
+  display: grid;
+  gap: 2px;
+  visibility: hidden;
+  opacity: 0;
+  transform: translate(-50%, 2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  pointer-events: none;
+  border-radius: 6px;
+  padding: 7px 8px;
+  color: white;
+  background: hsl(220 22% 18% / 0.96);
+  box-shadow: 0 4px 12px hsl(220 20% 10% / 0.24);
+  font-size: ${FONT_SIZES.dashboardAxis};
+  line-height: 1.3;
+
+  strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+
+const HealthChartAxis = styled(ChartAxis)`
+  box-sizing: border-box;
+  grid-template-columns: repeat(${(p) => p.$count}, minmax(0, 1fr));
+  padding-left: 92px;
+  gap: 0;
+
+  span {
+    min-width: 0;
+    white-space: nowrap;
+  }
 `;
 
 const toneColors = {

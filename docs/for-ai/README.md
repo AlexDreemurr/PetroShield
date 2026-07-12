@@ -96,8 +96,11 @@ petroshield/
 │  └─ app/api/routes/dashboard.py       # 首页指标和实时告警接口
 ├─ database/supabase/
 │  ├─ migrations/20260710000100_init_core_tables.sql
+│  ├─ migrations/20260712000200_add_person_health_observation.sql
 │  ├─ seed.sql                          # 8 张业务表的基础模拟数据
 │  ├─ seed_alarms.sql                   # 相对当前日期生成的告警趋势模拟数据
+│  ├─ seed_person_health.sql             # 最近7天人员健康观测模拟数据
+│  ├─ backfill_person_health_observation.sql # 现有人员健康快照一次性回填
 │  └─ config.toml
 └─ docs/for-ai/
    ├─ README.md                         # 本文
@@ -155,11 +158,11 @@ petroshield/
 - 设备状态分布：在线、离线、告警，包含数量与比例。
 - 实时告警列表：最多请求 20 条，前端每页固定显示 5 个槽位。
 - 告警趋势分析：查询最近 7 个自然日，按日统计重大、严重、一般告警。
+- 人员健康分析：按区域和时间桶展示人员健康观测中的中高风险人员比例。
 
 ### 仍为前端静态原型的内容
 
 - 厂区人员与设备分布地图及标记。
-- 人员健康分析热力图数据。
 - 设备在线率趋势历史数据（仅末端会参考当前在线率）。
 - 顶部指标卡下方的“较昨日”变化值。
 
@@ -279,6 +282,18 @@ GET /api/v1/dashboard/alarm-trend?days=7&granularity=day
 }
 ```
 
+人员健康分析：
+
+```http
+GET /api/v1/dashboard/person-health-analysis?days=7&granularity=day
+```
+
+- `days` 范围为 1 到 31，首页支持最近 7 天和最近 30 天。
+- `granularity` 支持 `day` 和 `week`。
+- 每名人员在每个时间桶内只取最后一条健康观测，避免一天多次观测造成重复计数。
+- 区域来自启用的 `area.name`；无观测数据的区域和日期也会返回零值。
+- `risk_ratio` 是该格中关注、限制、禁入、异常或中高健康风险人员占观测人员的比例。
+
 后端 CORS 当前允许：
 
 - `http://localhost:5173`
@@ -289,13 +304,14 @@ GET /api/v1/dashboard/alarm-trend?days=7&granularity=day
 
 ## 8. 数据库结构摘要
 
-当前初始化迁移创建 8 张业务表：
+当前迁移创建 9 张业务表：
 
 | 表 | 作用 |
 | --- | --- |
 | `area` | 电子围栏、危险和限制区域 |
 | `device` | 设备基础信息 |
 | `person` | 人员基础信息及设备绑定 |
+| `person_health_observation` | 人员健康字段的历史观测，最新一条同步到 person |
 | `device_realtime` | 设备实时状态，一对一扩展 `device` |
 | `device_maintenance` | 设备维护记录 |
 | `device_compliance` | 设备合规与年检记录 |
@@ -308,6 +324,7 @@ GET /api/v1/dashboard/alarm-trend?days=7&granularity=day
 
 - `device.region_id -> area.id`
 - `person.device_id -> device.id`
+- `person_health_observation.person_id -> person.id`
 - `device_realtime.device_id -> device.id`，且唯一
 - `device_maintenance.device_id -> device.id`
 - `device_maintenance.maintainer_id -> person.id`
@@ -316,7 +333,7 @@ GET /api/v1/dashboard/alarm-trend?days=7&granularity=day
 - `alarm.device_id -> device.id`，可空
 - `position.person_id -> person.id`
 
-`database/supabase/seed.sql` 已为上述 8 张业务表生成基础模拟数据；`seed_alarms.sql` 使用相对系统当前日期生成最近 7 天的告警趋势数据。`config.toml` 会在重置数据库时按该顺序执行两个文件。修改 schema 后必须同步检查 seed 是否仍能执行。
+`database/supabase/seed.sql` 已生成基础模拟数据；`seed_alarms.sql` 使用相对系统当前日期生成最近 7 天的告警趋势数据；`seed_person_health.sql` 为 8 名模拟人员生成最近 7 天共 56 条健康观测。`config.toml` 会在重置数据库时按顺序执行三个文件。现有远端人员首次迁移后，应单独执行 `backfill_person_health_observation.sql` 建立初始健康历史。修改 schema 后必须同步检查 seed 是否仍能执行。
 
 ## 9. 常见问题与排查顺序
 
