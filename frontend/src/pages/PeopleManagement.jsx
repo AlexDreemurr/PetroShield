@@ -179,12 +179,17 @@ function PersonDetailModal({ person, onClose }) {
             <ModalSectionTitle>定位信息</ModalSectionTitle>
             <DetailField label="当前区域" value={person.location_zone} />
             <DetailField label="定位来源" value={getLocationSource(person)} />
-            <DetailField label="定位置信度" value={getLocationConfidence(person)} />
+            <DetailField
+              label="定位置信度"
+              value={getLocationConfidence(person)}
+            />
             <DetailField
               label="定位坐标"
               value={
                 person.latest_position
-                  ? `x:${person.latest_position.x}, y:${person.latest_position.y}, z:${person.latest_position.z ?? "--"}`
+                  ? `x:${person.latest_position.x}, y:${
+                      person.latest_position.y
+                    }, z:${person.latest_position.z ?? "--"}`
                   : "--"
               }
             />
@@ -300,19 +305,16 @@ function PeopleManagement() {
   const statusMessage = isLoading
     ? "人员定位数据加载中..."
     : hasError
-      ? "人员定位数据加载失败"
-      : filteredPeople.length === 0
-        ? "没有匹配的人员"
-        : null;
+    ? "人员定位数据加载失败"
+    : filteredPeople.length === 0
+    ? "没有匹配的人员"
+    : null;
 
   return (
     <PageShell>
       <PageHeader>
         <div>
           <PageTitle>人员管理</PageTitle>
-          <PageSubtitle>
-            人员定位、定位来源、置信度与最近轨迹汇总
-          </PageSubtitle>
         </div>
         <SearchInput
           value={searchKeyword}
@@ -351,8 +353,6 @@ function PeopleManagement() {
                 <th>所属部门</th>
                 <th>状态</th>
                 <th>所在区域</th>
-                <th>定位来源</th>
-                <th>定位置信度</th>
                 <th>最近更新时间</th>
                 <th>操作</th>
               </tr>
@@ -360,7 +360,7 @@ function PeopleManagement() {
             <tbody>
               {statusMessage ? (
                 <tr>
-                  <EmptyCell colSpan="10">{statusMessage}</EmptyCell>
+                  <EmptyCell colSpan="8">{statusMessage}</EmptyCell>
                 </tr>
               ) : (
                 filteredPeople.map((person) => (
@@ -379,8 +379,6 @@ function PeopleManagement() {
                       </StatusInline>
                     </td>
                     <td>{person.location_zone ?? "--"}</td>
-                    <td>{getLocationSource(person)}</td>
-                    <td>{getLocationConfidence(person)}</td>
                     <td>
                       {formatTime(
                         person.latest_position?.timestamp ??
@@ -416,11 +414,13 @@ function PeopleManagement() {
 }
 
 const PageShell = styled.div`
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(420px, 52vh) minmax(260px, auto);
-  gap: 12px;
-  padding: 14px 16px;
+  grid-template-rows: auto minmax(0, 11fr) minmax(0, 9fr);
+  gap: 10px;
+  overflow: hidden;
+  padding: 10px 12px;
   background: hsl(216 26% 97%);
 `;
 
@@ -434,19 +434,19 @@ const PageHeader = styled.div`
 
 const PageTitle = styled.h1`
   color: ${COLORS.gray10};
-  font-size: 1.25rem;
+  font-size: ${FONT_SIZES.peoplePageTitle};
   font-weight: 700;
 `;
 
 const PageSubtitle = styled.p`
-  margin-top: 4px;
+  margin-top: 2px;
   color: hsl(218 10% 48%);
-  font-size: 0.8125rem;
+  font-size: ${FONT_SIZES.peoplePageSubtitle};
 `;
 
 const SearchInput = styled.input`
   width: min(360px, 44vw);
-  height: 36px;
+  height: 34px;
   border: 1px solid hsl(220 13% 84%);
   border-radius: 6px;
   padding: 0 12px;
@@ -464,8 +464,8 @@ const SearchInput = styled.input`
 const LocationPanel = styled.section`
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 4fr) minmax(280px, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr);
+  gap: 10px;
 `;
 
 const SelectedCard = styled.aside`
@@ -476,7 +476,7 @@ const SelectedCard = styled.aside`
   border: 1px solid hsl(220 13% 88%);
   border-radius: 8px;
   background: white;
-  padding: 18px;
+  padding: 14px;
   overflow: hidden;
 `;
 
@@ -485,7 +485,7 @@ const EmptySelection = styled.div`
   display: grid;
   place-items: center;
   color: hsl(218 10% 54%);
-  font-size: 0.9375rem;
+  font-size: ${FONT_SIZES.peopleEmptyText};
   text-align: center;
 `;
 
@@ -504,7 +504,7 @@ const Avatar = styled.div`
   border-radius: 100%;
   color: white;
   background: linear-gradient(135deg, hsl(214 92% 56%), hsl(199 88% 48%));
-  font-size: 1.25rem;
+  font-size: ${FONT_SIZES.peopleAvatarText};
   font-weight: 700;
 `;
 
@@ -514,7 +514,7 @@ const SelectedIdentity = styled.div`
 
 const SelectedName = styled.h2`
   color: ${COLORS.gray10};
-  font-size: 1.125rem;
+  font-size: ${FONT_SIZES.peopleSelectedName};
   font-weight: 700;
 `;
 
@@ -525,7 +525,7 @@ const SelectedMeta = styled.p`
   white-space: nowrap;
   margin-top: 4px;
   color: hsl(218 10% 48%);
-  font-size: 0.8125rem;
+  font-size: ${FONT_SIZES.peopleMeta};
 `;
 
 const StatusBadge = styled.span`
@@ -536,21 +536,21 @@ const StatusBadge = styled.span`
       green: "hsl(152 70% 32%)",
       red: "hsl(0 76% 48%)",
       gray: "hsl(218 10% 46%)",
-    })[p.$tone]};
+    }[p.$tone])};
   background: ${(p) =>
     ({
       green: "hsl(152 70% 42% / 0.12)",
       red: "hsl(0 76% 56% / 0.12)",
       gray: "hsl(218 10% 55% / 0.12)",
-    })[p.$tone]};
-  font-size: 0.75rem;
+    }[p.$tone])};
+  font-size: ${FONT_SIZES.peopleBadge};
   font-weight: 700;
 `;
 
 const SelectedFields = styled.div`
   display: grid;
-  gap: 12px;
-  margin-top: 20px;
+  gap: 9px;
+  margin-top: 14px;
 `;
 
 const DetailItem = styled.div`
@@ -563,14 +563,14 @@ const DetailItem = styled.div`
 
 const DetailLabel = styled.div`
   color: hsl(218 10% 54%);
-  font-size: 0.8125rem;
+  font-size: ${FONT_SIZES.peopleDetailLabel};
 `;
 
 const DetailValue = styled.div`
   min-width: 0;
   overflow-wrap: anywhere;
   color: hsl(218 15% 24%);
-  font-size: 0.875rem;
+  font-size: ${FONT_SIZES.peopleDetailValue};
   font-weight: 600;
 `;
 
@@ -596,10 +596,12 @@ const PrimaryButton = styled.button`
 
 const ListPanel = styled.section`
   min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid hsl(220 13% 88%);
   border-radius: 8px;
   background: white;
-  padding: 14px 16px 16px;
+  padding: 5px 10px 10px;
   overflow: hidden;
 `;
 
@@ -607,38 +609,38 @@ const ListHeader = styled.div`
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
 `;
 
 const ListTitle = styled.h2`
   color: ${COLORS.gray10};
-  font-size: 1rem;
+  font-size: ${FONT_SIZES.peopleListTitle};
   font-weight: 700;
 `;
 
 const ListCount = styled.span`
   color: hsl(218 10% 50%);
-  font-size: 0.8125rem;
+  font-size: ${FONT_SIZES.peopleDetailLabel};
 `;
 
 const TableWrap = styled.div`
-  max-height: 380px;
+  min-height: 0;
   overflow: auto;
 `;
 
 const PeopleTable = styled.table`
   width: 100%;
   border-collapse: collapse;
-  min-width: 1120px;
+  min-width: 900px;
 
   th,
   td {
-    height: 42px;
+    height: 32px;
     border-bottom: 1px solid hsl(220 13% 92%);
     padding: 0 10px;
     text-align: left;
     color: hsl(218 15% 24%);
-    font-size: 0.8125rem;
+    font-size: ${FONT_SIZES.peopleTable};
     white-space: nowrap;
   }
 
@@ -678,7 +680,7 @@ const StatusInline = styled.span`
         green: "hsl(152 70% 42%)",
         red: "hsl(0 76% 58%)",
         gray: "hsl(218 10% 58%)",
-      })[p.$tone]};
+      }[p.$tone])};
     transform: translateY(-50%);
   }
 `;
@@ -707,7 +709,7 @@ const ModalBackdrop = styled.div`
   z-index: 30;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 18px;
   background: hsl(220 20% 10% / 0.38);
 `;
 
@@ -729,20 +731,20 @@ const ModalHeader = styled.div`
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid hsl(220 13% 90%);
-  padding: 18px 20px;
+  padding: 16px 18px;
   background: white;
 `;
 
 const ModalTitle = styled.h2`
   color: ${COLORS.gray10};
-  font-size: 1.125rem;
+  font-size: ${FONT_SIZES.peopleModalTitle};
   font-weight: 700;
 `;
 
 const ModalSubtitle = styled.p`
   margin-top: 4px;
   color: hsl(218 10% 50%);
-  font-size: 0.8125rem;
+  font-size: ${FONT_SIZES.peopleDetailLabel};
 `;
 
 const CloseButton = styled.button`
@@ -752,7 +754,7 @@ const CloseButton = styled.button`
   border-radius: 6px;
   color: hsl(218 15% 24%);
   background: white;
-  font-size: 1.25rem;
+  font-size: ${FONT_SIZES.peopleCloseButton};
   cursor: pointer;
 `;
 
@@ -760,7 +762,7 @@ const ModalGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-  padding: 20px;
+  padding: 18px;
 `;
 
 const ModalSection = styled.section`
@@ -769,13 +771,13 @@ const ModalSection = styled.section`
   gap: 10px;
   border: 1px solid hsl(220 13% 90%);
   border-radius: 8px;
-  padding: 14px;
+  padding: 12px;
 `;
 
 const ModalSectionTitle = styled.h3`
   margin-bottom: 2px;
   color: ${COLORS.gray10};
-  font-size: 0.9375rem;
+  font-size: ${FONT_SIZES.peopleModalSectionTitle};
   font-weight: 700;
 `;
 

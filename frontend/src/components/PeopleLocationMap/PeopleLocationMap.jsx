@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
+import { FONT_SIZES } from "../../constants/STYLES";
 
 const MAP_CENTER = {
   lng: 121.671271,
@@ -74,12 +75,12 @@ function toMapCoordinate(person, index) {
     };
   }
 
-  const zoneAnchor =
-    zoneAnchors.find((anchor) => person.location_zone?.includes(anchor.keyword)) ??
-    {
-      lng: MAP_CENTER.lng,
-      lat: MAP_CENTER.lat,
-    };
+  const zoneAnchor = zoneAnchors.find((anchor) =>
+    person.location_zone?.includes(anchor.keyword)
+  ) ?? {
+    lng: MAP_CENTER.lng,
+    lat: MAP_CENTER.lat,
+  };
   const ring = Math.floor(index / 8) + 1;
   const angle = ((index % 8) / 8) * Math.PI * 2;
   const radius = 0.00016 * ring;
@@ -104,7 +105,7 @@ function toTrackCoordinate(point) {
 function createPersonIcon(BMap, person, isSelected) {
   const tone = getStatusTone(person.status);
   const color = getToneColor(tone);
-  const size = isSelected ? 34 : 28;
+  const size = 28; //isSelected ? 34 : 28;
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 36 36">
       <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="4"/>
@@ -133,6 +134,7 @@ function PeopleLocationMap({
   const mapRef = useRef(null);
   const bmapRef = useRef(null);
   const [status, setStatus] = useState("loading");
+  const [showPersonNames, setShowPersonNames] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -201,27 +203,33 @@ function PeopleLocationMap({
       const marker = new BMap.Marker(point, {
         icon: createPersonIcon(BMap, person, isSelected),
       });
-      const label = new BMap.Label(person.name, {
-        offset: new BMap.Size(14, -24),
-      });
+      if (showPersonNames) {
+        const label = new BMap.Label(person.name, {
+          offset: new BMap.Size(0, isSelected ? -44 : -39),
+        });
 
-      label.setStyle({
-        padding: "3px 7px",
-        border: "1px solid rgba(22, 119, 255, 0.25)",
-        borderRadius: "999px",
-        color: "#1f2937",
-        background: "rgba(255, 255, 255, 0.88)",
-        boxShadow: "0 6px 14px rgba(15, 23, 42, 0.16)",
-        fontSize: "12px",
-        lineHeight: "16px",
-      });
+        label.setStyle({
+          padding: "1px 7px",
+          border: "1px solid rgba(22, 119, 255, 0.25)",
+          borderRadius: "999px",
+          color: "#1f2937",
+          background: "rgba(255, 255, 255, 0.88)",
+          boxShadow: "0 6px 14px rgba(15, 23, 42, 0.16)",
+          fontSize: FONT_SIZES.peopleMapLabel,
+          lineHeight: "16px",
+          transform: "translate(-10%, 100%)",
+          whiteSpace: "nowrap",
+        });
 
-      marker.setLabel(label);
+        marker.setLabel(label);
+      }
       marker.addEventListener("click", () => onPersonSelect(person));
       map.addOverlay(marker);
     });
 
-    const selectedPerson = people.find((person) => person.id === selectedPersonId);
+    const selectedPerson = people.find(
+      (person) => person.id === selectedPersonId
+    );
 
     if (selectedPerson?.track?.length > 1) {
       const trackPoints = selectedPerson.track.map((point) => {
@@ -244,11 +252,19 @@ function PeopleLocationMap({
       const coordinate = toMapCoordinate(selectedPerson, selectedIndex);
       map.panTo(new BMap.Point(coordinate.lng, coordinate.lat));
     }
-  }, [onPersonSelect, people, selectedPersonId]);
+  }, [onPersonSelect, people, selectedPersonId, showPersonNames]);
 
   return (
     <MapFrame className={className}>
       <MapCanvas ref={mapNodeRef} aria-label="人员定位百度卫星地图" />
+      <NameToggle>
+        <input
+          type="checkbox"
+          checked={showPersonNames}
+          onChange={(event) => setShowPersonNames(event.target.checked)}
+        />
+        <span>显示姓名</span>
+      </NameToggle>
       {status === "loading" ? <MapStatus>地图加载中...</MapStatus> : null}
       {status === "error" ? (
         <MapStatus>地图加载失败，请检查 VITE_BAIDU_MAP_AK</MapStatus>
@@ -273,6 +289,31 @@ const MapCanvas = styled.div`
   min-height: 0;
 `;
 
+const NameToggle = styled.label`
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid hsl(220 13% 86%);
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: hsl(218 15% 24%);
+  background: hsl(0 0% 100% / 0.92);
+  box-shadow: 0 8px 18px hsl(220 20% 10% / 0.13);
+  font-size: ${FONT_SIZES.peopleDetailLabel};
+  font-weight: 700;
+  cursor: pointer;
+
+  input {
+    width: 14px;
+    height: 14px;
+    accent-color: hsl(214 92% 56%);
+  }
+`;
+
 const MapStatus = styled.div`
   position: absolute;
   inset: 0;
@@ -281,7 +322,7 @@ const MapStatus = styled.div`
   padding: 16px;
   color: hsl(218 10% 45%);
   background: hsl(216 23% 95% / 0.82);
-  font-size: 0.875rem;
+  font-size: ${FONT_SIZES.peopleMapStatus};
   text-align: center;
   pointer-events: none;
 `;
