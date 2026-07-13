@@ -102,10 +102,10 @@ function toTrackCoordinate(point) {
   };
 }
 
-function createPersonIcon(BMap, person, isSelected) {
+function createPersonIcon(BMap, person) {
   const tone = getStatusTone(person.status);
   const color = getToneColor(tone);
-  const size = 28; //isSelected ? 34 : 28;
+  const size = 28;
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 36 36">
       <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="4"/>
@@ -135,6 +135,7 @@ function PeopleLocationMap({
   const bmapRef = useRef(null);
   const [status, setStatus] = useState("loading");
   const [showPersonNames, setShowPersonNames] = useState(true);
+  const [showTrack, setShowTrack] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -201,7 +202,7 @@ function PeopleLocationMap({
       const isSelected = person.id === selectedPersonId;
       const point = new BMap.Point(coordinate.lng, coordinate.lat);
       const marker = new BMap.Marker(point, {
-        icon: createPersonIcon(BMap, person, isSelected),
+        icon: createPersonIcon(BMap, person),
       });
       if (showPersonNames) {
         const label = new BMap.Label(person.name, {
@@ -231,18 +232,38 @@ function PeopleLocationMap({
       (person) => person.id === selectedPersonId
     );
 
-    if (selectedPerson?.track?.length > 1) {
+    if (showTrack && selectedPerson?.track?.length > 1) {
       const trackPoints = selectedPerson.track.map((point) => {
         const coordinate = toTrackCoordinate(point);
         return new BMap.Point(coordinate.lng, coordinate.lat);
       });
       const polyline = new BMap.Polyline(trackPoints, {
         strokeColor: "#1677ff",
-        strokeWeight: 4,
-        strokeOpacity: 0.78,
+        strokeWeight: 3,
+        strokeOpacity: 0.82,
       });
+      const startPoint = trackPoints[0];
+      const endPoint = trackPoints[trackPoints.length - 1];
 
       map.addOverlay(polyline);
+      map.addOverlay(
+        new BMap.Circle(startPoint, 3.5, {
+          strokeColor: "#8b95a5",
+          strokeWeight: 1,
+          strokeOpacity: 0.8,
+          fillColor: "#8b95a5",
+          fillOpacity: 0.9,
+        })
+      );
+      map.addOverlay(
+        new BMap.Circle(endPoint, 4.5, {
+          strokeColor: "#1677ff",
+          strokeWeight: 2,
+          strokeOpacity: 0.95,
+          fillColor: "#1677ff",
+          fillOpacity: 0.95,
+        })
+      );
     }
 
     if (selectedPerson) {
@@ -252,19 +273,29 @@ function PeopleLocationMap({
       const coordinate = toMapCoordinate(selectedPerson, selectedIndex);
       map.panTo(new BMap.Point(coordinate.lng, coordinate.lat));
     }
-  }, [onPersonSelect, people, selectedPersonId, showPersonNames]);
+  }, [onPersonSelect, people, selectedPersonId, showPersonNames, showTrack]);
 
   return (
     <MapFrame className={className}>
       <MapCanvas ref={mapNodeRef} aria-label="人员定位百度卫星地图" />
-      <NameToggle>
-        <input
-          type="checkbox"
-          checked={showPersonNames}
-          onChange={(event) => setShowPersonNames(event.target.checked)}
-        />
-        <span>显示姓名</span>
-      </NameToggle>
+      <MapOptions>
+        <MapToggle>
+          <input
+            type="checkbox"
+            checked={showPersonNames}
+            onChange={(event) => setShowPersonNames(event.target.checked)}
+          />
+          <span>显示姓名</span>
+        </MapToggle>
+        <MapToggle>
+          <input
+            type="checkbox"
+            checked={showTrack}
+            onChange={(event) => setShowTrack(event.target.checked)}
+          />
+          <span>显示轨迹（5分钟）</span>
+        </MapToggle>
+      </MapOptions>
       {status === "loading" ? <MapStatus>地图加载中...</MapStatus> : null}
       {status === "error" ? (
         <MapStatus>地图加载失败，请检查 VITE_BAIDU_MAP_AK</MapStatus>
@@ -289,11 +320,18 @@ const MapCanvas = styled.div`
   min-height: 0;
 `;
 
-const NameToggle = styled.label`
+const MapOptions = styled.div`
   position: absolute;
   left: 12px;
   top: 12px;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const MapToggle = styled.label`
   display: inline-flex;
   align-items: center;
   gap: 6px;

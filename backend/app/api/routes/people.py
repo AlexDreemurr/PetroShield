@@ -55,22 +55,18 @@ async def get_people_locations():
           p.near_miss_count,
           p.safety_score,
           p.remark,
-          latest_position.x,
-          latest_position.y,
-          latest_position.z,
-          latest_position.source as location_source,
-          latest_position.confidence as location_confidence,
-          latest_position."timestamp" as location_time,
-          latest_position.speed,
-          latest_position.direction
+          current_position.x,
+          current_position.y,
+          current_position.z,
+          current_position.source as location_source,
+          current_position.confidence as location_confidence,
+          current_position."timestamp" as location_time,
+          current_position.speed,
+          current_position.direction,
+          current_position.track_position_id
         from public.person p
-        left join lateral (
-          select x, y, z, source, confidence, "timestamp", speed, direction
-          from public.position
-          where person_id = p.id
-          order by "timestamp" desc, create_time desc, id desc
-          limit 1
-        ) latest_position on true
+        left join public.person_position_current current_position
+          on current_position.person_id = p.id
         order by p.id;
     """
 
@@ -85,8 +81,9 @@ async def get_people_locations():
             ) as row_number
           from public.position pos
           where person_id = any($1::text[])
+            and "timestamp" >= now() - interval '5 minutes'
         ) ranked_position
-        where row_number <= 12
+        where row_number <= 300
         order by person_id, "timestamp";
     """
 
@@ -182,6 +179,7 @@ async def get_people_locations():
                     else None,
                     "speed": row["speed"],
                     "direction": row["direction"],
+                    "track_position_id": row["track_position_id"],
                 }
                 if row["x"] is not None
                 else None,

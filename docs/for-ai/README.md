@@ -93,13 +93,16 @@ petroshield/
 ├─ backend/
 │  ├─ app/main.py                       # FastAPI、CORS、/api/v1 前缀
 │  ├─ app/api/router.py                 # API 路由汇总
-│  └─ app/api/routes/dashboard.py       # 首页指标和实时告警接口
+│  ├─ app/api/routes/dashboard.py       # 首页指标和实时告警接口
+│  └─ app/api/routes/people.py          # 人员管理定位与轨迹接口
 ├─ database/supabase/
 │  ├─ migrations/20260710000100_init_core_tables.sql
 │  ├─ migrations/20260712000200_add_person_health_observation.sql
 │  ├─ migrations/20260712000300_add_device_realtime_observation.sql
+│  ├─ migrations/20260713000100_add_person_position_current.sql
 │  ├─ seeds/
 │  │  ├─ seed.sql                       # 基础模拟数据
+│  │  ├─ seed_person_positions.sql      # 最近5分钟人员逐秒短期轨迹模拟数据
 │  │  ├─ seed_alarms.sql                # 相对当前日期生成的告警趋势模拟数据
 │  │  ├─ seed_person_health.sql          # 最近7天人员健康观测模拟数据
 │  │  └─ seed_device_realtime_observation.sql # 最近7天设备状态观测模拟数据
@@ -312,13 +315,17 @@ GET /api/v1/dashboard/device-online-trend?days=7&granularity=day
 
 - `http://localhost:5173`
 - `http://127.0.0.1:5173`
+- `http://localhost:5174`
+- `http://127.0.0.1:5174`
+- `http://localhost:5175`
+- `http://127.0.0.1:5175`
 - `https://petroshield.netlify.app`
 
-若 Vite 自动切换到 5174 等其他端口，浏览器请求会被 CORS 拒绝。应优先让前端使用 5173，或明确更新 CORS 白名单。
+若 Vite 自动切换到其他端口，浏览器请求可能被 CORS 拒绝。应优先让前端使用上述端口，或明确更新 CORS 白名单。
 
 ## 8. 数据库结构摘要
 
-当前迁移创建 10 张业务表：
+当前迁移创建 11 张业务表：
 
 | 表 | 作用 |
 | --- | --- |
@@ -331,7 +338,8 @@ GET /api/v1/dashboard/device-online-trend?days=7&granularity=day
 | `device_maintenance` | 设备维护记录 |
 | `device_compliance` | 设备合规与年检记录 |
 | `alarm` | 人员或设备产生的告警事件 |
-| `position` | 人员实时及历史定位数据 |
+| `position` | 人员短期轨迹点 |
+| `person_position_current` | 人员实时位置快照，一人一条 |
 
 “设备”被拆为基础、实时快照、实时历史、维护、合规五张表，用于分离不同更新频率、生命周期和一对多记录。完整字段、外键、检查约束、状态值与索引请以 [`database-schema.md`](./database-schema.md) 和迁移 SQL 为准。
 
@@ -348,8 +356,10 @@ GET /api/v1/dashboard/device-online-trend?days=7&granularity=day
 - `alarm.person_id -> person.id`，可空
 - `alarm.device_id -> device.id`，可空
 - `position.person_id -> person.id`
+- `person_position_current.person_id -> person.id`，且唯一
+- `person_position_current.device_id -> device.id`，可空
 
-`database/supabase/seeds/seed.sql` 已生成 25 名人员和 16 台设备等基础模拟数据；`seed_alarms.sql` 生成最近 7 天共 50 条动态告警；`seed_person_health.sql` 生成 175 条健康观测；`seed_device_realtime_observation.sql` 生成 112 条设备状态观测。`config.toml` 会按顺序执行四个文件。现有远端数据首次迁移后，应分别执行人员健康和设备实时状态回填脚本。修改 schema 后必须同步检查 seed 是否仍能执行。
+`database/supabase/seeds/seed.sql` 已生成 25 名人员和 16 台设备等基础模拟数据，并包含 16 条基础 `position` 轨迹点；迁移 `20260713000100_add_person_position_current.sql` 会用每人最新轨迹点回填 `person_position_current`。`seed_person_positions.sql` 会按当前 `person` 真实集合动态生成最近 5 分钟逐秒轨迹，当前 25 人时为 7,500 条 `position`，并同步 `person_position_current`。`seed_alarms.sql` 生成最近 7 天共 50 条动态告警；`seed_person_health.sql` 生成 175 条健康观测；`seed_device_realtime_observation.sql` 生成 112 条设备状态观测。`config.toml` 会按顺序执行五个文件。现有远端数据首次迁移后，应分别执行人员健康和设备实时状态回填脚本。修改 schema 后必须同步检查 seed 是否仍能执行。
 
 ## 9. 常见问题与排查顺序
 

@@ -5,6 +5,7 @@
 - `database/supabase/migrations/20260710000100_init_core_tables.sql`
 - `database/supabase/migrations/20260712000200_add_person_health_observation.sql`
 - `database/supabase/migrations/20260712000300_add_device_realtime_observation.sql`
+- `database/supabase/migrations/20260713000100_add_person_position_current.sql`
 - 需求分析文档中的 `person`、`alarm`、`position`、`area`、`device` 原型
 
 后续约定：生成迁移文件或 seed 文件后，默认只提交到本地文件，不直接执行 `supabase db push`。
@@ -24,7 +25,8 @@
 | `person` | 厂区人员基础信息、状态、培训、健康与安全行为 |
 | `person_health_observation` | 人员健康字段历史观测及最新快照来源 |
 | `alarm` | 告警事件 |
-| `position` | 人员实时与历史定位 |
+| `position` | 人员短期轨迹点 |
+| `person_position_current` | 人员实时位置快照 |
 
 ## 关系图
 
@@ -41,6 +43,8 @@ erDiagram
   PERSON ||--o{ PERSON_HEALTH_OBSERVATION : "person_id"
   DEVICE ||--o{ ALARM : "device_id"
   PERSON ||--o{ POSITION : "person_id"
+  PERSON ||--|| PERSON_POSITION_CURRENT : "person_id"
+  DEVICE ||--o{ PERSON_POSITION_CURRENT : "device_id"
 ```
 
 ## 通用约定
@@ -282,7 +286,7 @@ erDiagram
 
 ## position
 
-人员实时及历史定位数据。
+人员短期轨迹点表。用于保存近 5 到 30 分钟等短时间窗口内的定位观测，供前端绘制活动轨迹。实时地图和人员卡片应优先读取 `person_position_current` 快照表，避免每次都从高频轨迹点中聚合最新位置。
 
 | 字段 | 类型 | 约束/默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -303,11 +307,39 @@ erDiagram
 - `idx_position_person_timestamp(person_id, timestamp desc)`
 - `idx_position_source_timestamp(source, timestamp desc)`
 
+## person_position_current
+
+人员实时位置快照表。每名人员最多一条最新位置，由 `position` 短期轨迹点插入、更新或删除时的触发器自动同步；迁移执行时会用现有 `position` 每人的最新点回填一次。
+
+| 字段 | 类型 | 约束/默认值 | 说明 |
+| --- | --- | --- | --- |
+| `person_id` | `text` | PK, FK -> `person(id)`, ON DELETE CASCADE | 人员 ID，一人一条实时位置快照 |
+| `device_id` | `text` | FK -> `device(id)`, ON DELETE SET NULL | 产生该位置的绑定定位设备 ID，来自 `person.device_id` 快照 |
+| `x` | `double precision` | NOT NULL | 当前 X 坐标，沿用 `position.x` 的厂区局部坐标体系 |
+| `y` | `double precision` | NOT NULL | 当前 Y 坐标，沿用 `position.y` 的厂区局部坐标体系 |
+| `z` | `double precision` | NULL | 当前 Z 坐标 |
+| `source` | `text` | NOT NULL | 定位来源，如北斗、UWB、视觉融合 |
+| `confidence` | `double precision` | NOT NULL, 0 到 1 | 定位置信度 |
+| `timestamp` | `timestamptz` | NOT NULL | 该实时位置对应的定位时间 |
+| `speed` | `double precision` | NULL, `>= 0` | 移动速度 |
+| `direction` | `double precision` | NULL | 移动方向 |
+| `track_position_id` | `text` | FK -> `position(id)`, ON DELETE SET NULL | 该快照来源的短期轨迹点 ID |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | 快照首次创建时间 |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | 快照更新时间 |
+
+索引与同步逻辑：
+
+- `idx_person_position_current_device_id(device_id)`
+- `idx_person_position_current_timestamp(timestamp desc)`
+- `idx_person_position_current_source_timestamp(source, timestamp desc)`
+- `trg_position_sync_person_position_current`：`position` 变化后选择该人员最新轨迹点同步快照；删除最新轨迹点时自动回退到上一条，无轨迹点时删除快照。
+
 ## Seed 数据
 
 模拟数据文件位于：
 
 - `database/supabase/seeds/seed.sql`
+- `database/supabase/seeds/seed_person_positions.sql`
 - `database/supabase/seeds/seed_alarms.sql`
 - `database/supabase/seeds/seed_person_health.sql`
 - `database/supabase/seeds/seed_device_realtime_observation.sql`
@@ -325,7 +357,8 @@ erDiagram
 - 50 条最近 7 天的动态告警趋势数据
 - 175 条最近 7 天的人员健康观测数据
 - 112 条最近 7 天的设备实时状态观测数据
-- 16 条定位记录
+- 16 条基础定位记录
+- 基于当前人员集合动态生成的最近 5 分钟逐秒短期轨迹；当前 25 人时为 7,500 条 `position` 轨迹点，并自动同步 `person_position_current`
 
 执行方式：
 

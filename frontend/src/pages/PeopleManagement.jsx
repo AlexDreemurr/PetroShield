@@ -438,12 +438,6 @@ const PageTitle = styled.h1`
   font-weight: 700;
 `;
 
-const PageSubtitle = styled.p`
-  margin-top: 2px;
-  color: hsl(218 10% 48%);
-  font-size: ${FONT_SIZES.peoplePageSubtitle};
-`;
-
 const SearchInput = styled.input`
   width: min(360px, 44vw);
   height: 34px;
