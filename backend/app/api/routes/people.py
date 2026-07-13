@@ -71,17 +71,23 @@ async def get_people_locations():
     """
 
     track_query = """
+        with candidate_position as (
+          select
+            pos.*,
+            max(pos."timestamp") over (partition by pos.person_id) as latest_time
+          from public.position pos
+          where pos.person_id = any($1::text[])
+        )
         select person_id, x, y, z, source, confidence, "timestamp", speed, direction
         from (
           select
-            pos.*,
+            candidate_position.*,
             row_number() over (
               partition by person_id
               order by "timestamp" desc, create_time desc, id desc
             ) as row_number
-          from public.position pos
-          where person_id = any($1::text[])
-            and "timestamp" >= now() - interval '5 minutes'
+          from candidate_position
+          where "timestamp" >= latest_time - interval '5 minutes'
         ) ranked_position
         where row_number <= 300
         order by person_id, "timestamp";

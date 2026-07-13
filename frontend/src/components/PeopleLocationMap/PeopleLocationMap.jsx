@@ -18,6 +18,8 @@ const LOCAL_COORDINATE_SCALE = {
   lat: 0.0000038,
 };
 
+const TRACK_POINT_STEP = 5;
+
 const zoneAnchors = [
   {
     keyword: "A区",
@@ -61,10 +63,14 @@ function getToneColor(tone) {
   }[tone];
 }
 
+function isFiniteCoordinate(value) {
+  return Number.isFinite(Number(value));
+}
+
 function toMapCoordinate(person, index) {
   const position = person.latest_position;
 
-  if (position?.x != null && position?.y != null) {
+  if (isFiniteCoordinate(position?.x) && isFiniteCoordinate(position?.y)) {
     return {
       lng:
         MAP_CENTER.lng +
@@ -92,6 +98,10 @@ function toMapCoordinate(person, index) {
 }
 
 function toTrackCoordinate(point) {
+  if (!isFiniteCoordinate(point?.x) || !isFiniteCoordinate(point?.y)) {
+    return null;
+  }
+
   return {
     lng:
       MAP_CENTER.lng +
@@ -102,15 +112,41 @@ function toTrackCoordinate(point) {
   };
 }
 
-function createPersonIcon(BMap, person) {
+function getVisibleTrackPoints(person) {
+  const track = Array.isArray(person.track) ? person.track : [];
+
+  if (track.length <= 1) {
+    return [];
+  }
+
+  return track
+    .filter((_, index) => index % TRACK_POINT_STEP === 0 || index === track.length - 1)
+    .map(toTrackCoordinate)
+    .filter(Boolean);
+}
+
+function createPersonIcon(BMap, person, isSelected) {
   const tone = getStatusTone(person.status);
   const color = getToneColor(tone);
   const size = 28;
+  const selectedRing = isSelected
+    ? `<circle cx="18" cy="18" r="16" fill="none" stroke="#facc15" stroke-width="4" opacity="0.98"/>`
+    : "";
+  const shadowFilter = isSelected
+    ? `<filter id="selectedShadow" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="2" stdDeviation="2.4" flood-color="#f59e0b" flood-opacity="0.72"/>
+      </filter>`
+    : "";
+  const filterAttr = isSelected ? ` filter="url(#selectedShadow)"` : "";
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 36 36">
-      <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="4"/>
-      <circle cx="18" cy="15" r="4" fill="white"/>
-      <path d="M10 27c1.8-4.2 5-6.3 8-6.3s6.2 2.1 8 6.3" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+      <defs>${shadowFilter}</defs>
+      ${selectedRing}
+      <g${filterAttr}>
+        <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="4"/>
+        <circle cx="18" cy="15" r="4" fill="white"/>
+        <path d="M10 27c1.8-4.2 5-6.3 8-6.3s6.2 2.1 8 6.3" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
+      </g>
     </svg>
   `;
 
@@ -198,15 +234,65 @@ function PeopleLocationMap({
       coordinate: toMapCoordinate(person, index),
     }));
 
+    const selectedPerson = people.find(
+      (person) => person.id === selectedPersonId
+    );
+
+    if (showTrack) {
+      people.forEach((person) => {
+        const trackCoordinates = getVisibleTrackPoints(person);
+
+        if (trackCoordinates.length <= 1) {
+          return;
+        }
+
+        const isSelected = person.id === selectedPersonId;
+        const trackPoints = trackCoordinates.map(
+          (coordinate) => new BMap.Point(coordinate.lng, coordinate.lat)
+        );
+        const polyline = new BMap.Polyline(trackPoints, {
+          strokeColor: isSelected ? "#f59e0b" : "#1677ff",
+          strokeWeight: isSelected ? 4 : 2,
+          strokeOpacity: isSelected ? 0.9 : 0.36,
+        });
+
+        map.addOverlay(polyline);
+
+        if (isSelected) {
+          const startPoint = trackPoints[0];
+          const endPoint = trackPoints[trackPoints.length - 1];
+
+          map.addOverlay(
+            new BMap.Circle(startPoint, 3.5, {
+              strokeColor: "#8b95a5",
+              strokeWeight: 1,
+              strokeOpacity: 0.8,
+              fillColor: "#8b95a5",
+              fillOpacity: 0.9,
+            })
+          );
+          map.addOverlay(
+            new BMap.Circle(endPoint, 4.5, {
+              strokeColor: "#f59e0b",
+              strokeWeight: 2,
+              strokeOpacity: 0.95,
+              fillColor: "#f59e0b",
+              fillOpacity: 0.95,
+            })
+          );
+        }
+      });
+    }
+
     markerPoints.forEach(({ person, coordinate }) => {
       const isSelected = person.id === selectedPersonId;
       const point = new BMap.Point(coordinate.lng, coordinate.lat);
       const marker = new BMap.Marker(point, {
-        icon: createPersonIcon(BMap, person),
+        icon: createPersonIcon(BMap, person, isSelected),
       });
       if (showPersonNames) {
         const label = new BMap.Label(person.name, {
-          offset: new BMap.Size(0, isSelected ? -44 : -39),
+          offset: new BMap.Size(14, isSelected ? -44 : -39),
         });
 
         label.setStyle({
@@ -218,7 +304,7 @@ function PeopleLocationMap({
           boxShadow: "0 6px 14px rgba(15, 23, 42, 0.16)",
           fontSize: FONT_SIZES.peopleMapLabel,
           lineHeight: "16px",
-          transform: "translate(-10%, 100%)",
+          transform: "translateX(-50%)",
           whiteSpace: "nowrap",
         });
 
@@ -227,44 +313,6 @@ function PeopleLocationMap({
       marker.addEventListener("click", () => onPersonSelect(person));
       map.addOverlay(marker);
     });
-
-    const selectedPerson = people.find(
-      (person) => person.id === selectedPersonId
-    );
-
-    if (showTrack && selectedPerson?.track?.length > 1) {
-      const trackPoints = selectedPerson.track.map((point) => {
-        const coordinate = toTrackCoordinate(point);
-        return new BMap.Point(coordinate.lng, coordinate.lat);
-      });
-      const polyline = new BMap.Polyline(trackPoints, {
-        strokeColor: "#1677ff",
-        strokeWeight: 3,
-        strokeOpacity: 0.82,
-      });
-      const startPoint = trackPoints[0];
-      const endPoint = trackPoints[trackPoints.length - 1];
-
-      map.addOverlay(polyline);
-      map.addOverlay(
-        new BMap.Circle(startPoint, 3.5, {
-          strokeColor: "#8b95a5",
-          strokeWeight: 1,
-          strokeOpacity: 0.8,
-          fillColor: "#8b95a5",
-          fillOpacity: 0.9,
-        })
-      );
-      map.addOverlay(
-        new BMap.Circle(endPoint, 4.5, {
-          strokeColor: "#1677ff",
-          strokeWeight: 2,
-          strokeOpacity: 0.95,
-          fillColor: "#1677ff",
-          fillOpacity: 0.95,
-        })
-      );
-    }
 
     if (selectedPerson) {
       const selectedIndex = people.findIndex(

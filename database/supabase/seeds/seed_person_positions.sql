@@ -46,7 +46,8 @@ person_anchor as (
       when sp.location_zone like '%办公%' or sp.location_zone like '%综合%' then 130.0
       else 300.0
     end
-      + ((sp.person_order - 1) % 5) * 8.0 as base_x,
+      + (((sp.person_order - 1) % 5) - 2) * 36.0
+      + sin(sp.person_order::double precision * 1.37) * 7.0 as base_x,
     case
       when sp.location_zone like '%A区%' or sp.location_zone like '%储罐%' then 170.0
       when sp.location_zone like '%B区%' or sp.location_zone like '%装卸%' then 225.0
@@ -54,7 +55,8 @@ person_anchor as (
       when sp.location_zone like '%办公%' or sp.location_zone like '%综合%' then 115.0
       else 230.0
     end
-      + ((sp.person_order - 1) / 5) * 6.0 as base_y
+      + ((((sp.person_order - 1) / 5) % 5) - 2) * 28.0
+      + cos(sp.person_order::double precision * 1.91) * 6.0 as base_y
   from seeded_person sp
 ),
 track_sample as (
@@ -78,8 +80,8 @@ track_sample as (
     end as confidence_base,
     case
       when pa.status = '离线' then 0.04
-      when pa.status in ('异常', '风险', '禁止进入') then 1.25
-      else 0.55
+      when pa.status in ('异常', '风险', '禁止进入') then 1.85
+      else 0.85
     end as movement_scale
   from person_anchor pa
   cross join second_offset so
