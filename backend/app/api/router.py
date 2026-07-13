@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import dashboard, health
+from app.api.routes import dashboard, health, people
 
 api_router = APIRouter()
 
@@ -14,4 +14,10 @@ api_router.include_router(
     dashboard.router,
     prefix="/dashboard",
     tags=["首页"],
+)
+
+api_router.include_router(
+    people.router,
+    prefix="/people",
+    tags=["人员管理"],
 )
