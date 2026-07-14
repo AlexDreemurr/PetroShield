@@ -183,8 +183,20 @@ function buildAlarmTrendLines(items) {
   ];
 }
 
-function Card({ title, value, unit, icon, tone, isLoading, hasError }) {
+function Card({
+  title,
+  value,
+  unit,
+  icon,
+  tone,
+  comparison,
+  isLoading,
+  hasError,
+}) {
   const displayValue = isLoading || hasError ? "--" : value;
+  const comparisonLabel =
+    isLoading || hasError ? "--" : comparison?.label ?? "暂无昨日数据";
+  const comparisonTone = comparison?.trend === "down" ? "gray" : tone;
 
   return (
     <CardWrapper>
@@ -199,8 +211,8 @@ function Card({ title, value, unit, icon, tone, isLoading, hasError }) {
         <MetricUnit>{unit}</MetricUnit>
       </MetricLine>
       <MetricFooter>
-        <MetricDelta $tone={tone}>
-          {tone === "red" ? "+1" : "+1.2%"}
+        <MetricDelta $tone={comparisonTone}>
+          {comparisonLabel}
         </MetricDelta>
         <MetricLabel>{hasError ? "数据获取失败" : "较昨日"}</MetricLabel>
       </MetricFooter>
@@ -1214,6 +1226,7 @@ function Dashboard() {
             key={card.key}
             {...card}
             value={metrics?.[card.key]}
+            comparison={metrics?.metric_comparisons?.[card.key]}
             isLoading={isLoading}
             hasError={hasError}
           />

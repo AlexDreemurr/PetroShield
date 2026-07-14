@@ -52,6 +52,8 @@ export const FONT_SIZES = {
   peopleSelectedName: rem(16),
   peopleMeta: rem(12),
   peopleBadge: rem(10),
+  peopleSearchInput: rem(12),
+  peopleCardAction: rem(12),
   peopleDetailLabel: rem(11),
   peopleDetailValue: rem(11),
   peopleListTitle: rem(14),

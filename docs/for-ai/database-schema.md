@@ -1,382 +1,533 @@
-# PetroShield 数据库表结构
+# PetroShield 数据库结构
 
-本文档记录当前 Supabase 初始化迁移中的核心表结构，来源于：
+> 最后核对：2026-07-13
+> 来源：`database/supabase/migrations/` 中的 4 个迁移文件，以及当前 `database/supabase/seeds/` 策略。本文用于后续 Codex 快速理解 schema；字段、约束和触发器以迁移 SQL 为最终准绳。
 
-- `database/supabase/migrations/20260710000100_init_core_tables.sql`
-- `database/supabase/migrations/20260712000200_add_person_health_observation.sql`
-- `database/supabase/migrations/20260712000300_add_device_realtime_observation.sql`
-- `database/supabase/migrations/20260713000100_add_person_position_current.sql`
-- 需求分析文档中的 `person`、`alarm`、`position`、`area`、`device` 原型
+## 1. 总览
 
-后续约定：生成迁移文件或 seed 文件后，默认只提交到本地文件，不直接执行 `supabase db push`。
+当前 Supabase/PostgreSQL schema 围绕石化厂安全监管场景，核心业务表共 11 张：
 
-## 总览
-
-当前数据库围绕厂区安全监管场景设计，核心对象如下：
-
-| 表名 | 说明 |
+| 表 | 说明 |
 | --- | --- |
 | `area` | 电子围栏、风险区域、作业区域 |
 | `device` | 设备基础档案 |
-| `device_realtime` | 设备实时状态 |
-| `device_realtime_observation` | 设备实时状态历史观测及最新快照来源 |
+| `device_realtime` | 设备实时状态快照 |
+| `device_realtime_observation` | 设备实时状态历史观测，最新观测同步到 `device_realtime` |
 | `device_maintenance` | 设备运维管理 |
-| `device_compliance` | 设备合规年检 |
-| `person` | 厂区人员基础信息、状态、培训、健康与安全行为 |
-| `person_health_observation` | 人员健康字段历史观测及最新快照来源 |
+| `device_compliance` | 设备合规、年检、证书 |
+| `person` | 人员基础信息、状态、培训、健康、安全行为 |
+| `person_health_observation` | 人员健康历史观测，最新观测同步回 `person` 健康字段 |
 | `alarm` | 告警事件 |
 | `position` | 人员短期轨迹点 |
-| `person_position_current` | 人员实时位置快照 |
+| `person_position_current` | 人员实时位置快照，一人最多一条 |
 
-## 关系图
+通用约定：
+
+- 主键基本使用 `text`，默认值多为 `extensions.gen_random_uuid()::text`。
+- 时间字段使用 `timestamptz`。
+- JSON 字段使用 `jsonb`。
+- `create_time` / `update_time` 或 `created_at` / `updated_at` 是当前项目并存的两套命名。
+- `set_update_time()` 更新 `update_time`；`set_updated_at()` 更新 `updated_at`。
+- 不要擅自执行远端 `supabase db push` 或带 seed 的远端操作。
+
+## 2. 关系图
 
 ```mermaid
 erDiagram
-  AREA ||--o{ DEVICE : "region_id"
-  DEVICE ||--o{ PERSON : "device_id"
-  DEVICE ||--|| DEVICE_REALTIME : "device_id"
-  DEVICE ||--o{ DEVICE_REALTIME_OBSERVATION : "device_id"
-  DEVICE ||--|| DEVICE_MAINTENANCE : "device_id"
-  DEVICE ||--|| DEVICE_COMPLIANCE : "device_id"
-  PERSON ||--o{ DEVICE_MAINTENANCE : "maintainer_id"
-  PERSON ||--o{ ALARM : "person_id"
-  PERSON ||--o{ PERSON_HEALTH_OBSERVATION : "person_id"
-  DEVICE ||--o{ ALARM : "device_id"
-  PERSON ||--o{ POSITION : "person_id"
-  PERSON ||--|| PERSON_POSITION_CURRENT : "person_id"
-  DEVICE ||--o{ PERSON_POSITION_CURRENT : "device_id"
+  AREA ||--o{ DEVICE : region_id
+  DEVICE ||--o{ PERSON : device_id
+  DEVICE ||--|| DEVICE_REALTIME : device_id
+  DEVICE ||--o{ DEVICE_REALTIME_OBSERVATION : device_id
+  DEVICE ||--|| DEVICE_MAINTENANCE : device_id
+  DEVICE ||--|| DEVICE_COMPLIANCE : device_id
+  PERSON ||--o{ DEVICE_MAINTENANCE : maintainer_id
+  PERSON ||--o{ PERSON_HEALTH_OBSERVATION : person_id
+  PERSON ||--o{ ALARM : person_id
+  DEVICE ||--o{ ALARM : device_id
+  PERSON ||--o{ POSITION : person_id
+  PERSON ||--|| PERSON_POSITION_CURRENT : person_id
+  DEVICE ||--o{ PERSON_POSITION_CURRENT : device_id
+  POSITION ||--o{ PERSON_POSITION_CURRENT : track_position_id
 ```
 
-## 通用约定
+## 3. 公共函数
 
-- 主键当前统一使用 `text`，默认值为 `extensions.gen_random_uuid()::text`。这样既支持系统自动生成 UUID，也能兼容外部设备编码、人员编码、区域编码。
-- JSON 字段使用 `jsonb`，包括区域边界、中心点、设备位置、告警位置、告警证据。
-- 时间字段使用 `timestamptz`。
-- 文档原型中的 `string` 映射为 `text`，`float` 映射为 `double precision`，`datetime` 映射为 `timestamptz`，`json` 映射为 `jsonb`。
-- `update_time` 和 `updated_at` 通过触发器自动刷新。
+### `public.set_update_time()`
 
-## area
+`before update` 触发器函数，写入 `new.update_time = now()`。
 
-定义电子围栏与风险区域。
+当前用于：
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `text` | PK, default UUID text | 区域唯一标识 |
-| `name` | `text` | NOT NULL | 区域名称 |
-| `type` | `text` | NOT NULL | 区域类型，如禁入、限制、普通、危险 |
-| `polygon` | `jsonb` | NOT NULL, default `[]` | 多边形坐标集合 |
-| `center` | `jsonb` | NULL | 中心点坐标 |
-| `radius` | `double precision` | NULL, `radius >= 0` | 半径，适用于圆形区域 |
-| `rule_config` | `jsonb` | NOT NULL, default `{}` | 规则配置，如越界、停留、人数限制 |
-| `risk_level` | `text` | NULL | 风险等级 |
-| `enable` | `boolean` | NOT NULL, default `true` | 是否启用 |
-| `create_time` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
-| `update_time` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
+- `area`
+- `person`
+- `alarm`
+- `person_health_observation`
 
-索引：
+### `public.set_updated_at()`
+
+`before update` 触发器函数，写入 `new.updated_at = now()`。
+
+当前用于：
+
+- `device`
+- `device_realtime`
+- `device_compliance`
+- `device_realtime_observation`
+- `person_position_current`
+
+## 4. 表结构
+
+### `area`
+
+定义电子围栏、风险区和作业区域。
+
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID text |
+| `name` | `text` | NOT NULL |
+| `type` | `text` | NOT NULL |
+| `polygon` | `jsonb` | NOT NULL, default `[]` |
+| `center` | `jsonb` | NULL |
+| `radius` | `double precision` | NULL, `radius >= 0` |
+| `rule_config` | `jsonb` | NOT NULL, default `{}` |
+| `risk_level` | `text` | NULL |
+| `enable` | `boolean` | NOT NULL, default `true` |
+| `create_time` | `timestamptz` | NOT NULL, default `now()` |
+| `update_time` | `timestamptz` | NOT NULL, default `now()` |
+
+索引/触发器：
 
 - `idx_area_type_enable(type, enable)`
+- `trg_area_set_update_time`
 
-## device
+### `device`
 
-设备基础信息层，管理定位设备、感知设备、生产设备和安防设备的基础档案。
+设备基础档案，保存设备名称、类型、分类、安装区域等低频信息。
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `text` | PK, default UUID text | 设备唯一 ID |
-| `name` | `text` | NOT NULL | 设备名称 |
-| `type` | `text` | NOT NULL | 设备类型，如 UWB、北斗、雷达、摄像头、泵、仪表 |
-| `category` | `text` | NOT NULL | 分类，如感知设备、生产设备、安防设备 |
-| `model` | `text` | NULL | 设备型号 |
-| `manufacturer` | `text` | NULL | 厂商 |
-| `serial_number` | `text` | NULL | 序列号 |
-| `install_date` | `timestamptz` | NULL | 安装时间 |
-| `region_id` | `text` | FK -> `area(id)`, ON DELETE SET NULL | 所属区域 |
-| `location` | `jsonb` | NULL | 安装位置，如厂区、车间、GIS 坐标 |
-| `created_at` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
-| `updated_at` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID text |
+| `name` | `text` | NOT NULL |
+| `type` | `text` | NOT NULL |
+| `category` | `text` | NOT NULL |
+| `model` | `text` | NULL |
+| `manufacturer` | `text` | NULL |
+| `serial_number` | `text` | NULL |
+| `install_date` | `timestamptz` | NULL |
+| `region_id` | `text` | FK -> `area(id)`, ON DELETE SET NULL |
+| `location` | `jsonb` | NULL |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
 
-索引：
+索引/触发器：
 
 - `idx_device_region_id(region_id)`
+- `trg_device_set_updated_at`
 
-## device_realtime
+### `person`
 
-设备实时状态层。和 `device` 一对一，用于承载频繁变化的在线状态、心跳、健康度等数据。
+人员基础表，也保存当前状态、培训、健康快照、安全行为统计等字段。健康字段的历史来源是 `person_health_observation`，最新健康观测会同步回本表。
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `device_id` | `text` | PK, FK -> `device(id)`, ON DELETE CASCADE | 关联设备 |
-| `status` | `text` | NOT NULL | online / offline / fault / maintenance |
-| `battery` | `double precision` | NULL, 0 到 100 | 电量 |
-| `signal_strength` | `double precision` | NULL | 信号强度 |
-| `cpu_usage` | `double precision` | NULL, 0 到 100 | CPU 使用率 |
-| `temperature` | `double precision` | NULL | 设备温度 |
-| `last_heartbeat` | `timestamptz` | NULL | 最后心跳 |
-| `health_score` | `double precision` | NULL, 0 到 100 | 健康评分 |
-| `updated_at` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID text |
+| `name` | `text` | NOT NULL |
+| `gender` | `text` | NULL |
+| `type` | `text` | NOT NULL |
+| `department` | `text` | NULL |
+| `position` | `text` | NULL |
+| `company` | `text` | NULL |
+| `id_card` | `text` | NULL |
+| `phone` | `text` | NULL |
+| `device_id` | `text` | FK -> `device(id)`, ON DELETE SET NULL |
+| `device_type` | `text` | NULL |
+| `bind_time` | `timestamptz` | NULL |
+| `location_zone` | `text` | NULL |
+| `status` | `text` | NOT NULL |
+| `risk_level` | `text` | NULL |
+| `access_status` | `text` | NULL |
+| `last_active_time` | `timestamptz` | NULL |
+| `safety_tag` | `text` | NULL |
+| `training_status` | `text` | NULL |
+| `training_score` | `double precision` | NULL, `>= 0` |
+| `last_training_time` | `timestamptz` | NULL |
+| `certificate_status` | `text` | NULL |
+| `health_status` | `text` | NULL |
+| `health_risk_level` | `text` | NULL |
+| `last_medical_check` | `timestamptz` | NULL |
+| `occupational_disease_flag` | `boolean` | NULL |
+| `exposure_level` | `text` | NULL |
+| `performance_score` | `double precision` | NULL, `>= 0` |
+| `violation_count` | `integer` | NOT NULL, default `0`, `>= 0` |
+| `reward_count` | `integer` | NOT NULL, default `0`, `>= 0` |
+| `near_miss_count` | `integer` | NOT NULL, default `0`, `>= 0` |
+| `safety_score` | `double precision` | NULL, `>= 0` |
+| `create_time` | `timestamptz` | NOT NULL, default `now()` |
+| `update_time` | `timestamptz` | NOT NULL, default `now()` |
+| `remark` | `text` | NULL |
 
-索引：
+索引/触发器：
+
+- `idx_person_device_id(device_id)`
+- `idx_person_type_status(type, status)`
+- `idx_person_department(department)`
+- `trg_person_set_update_time`
+
+### `device_realtime`
+
+设备当前状态快照，一台设备最多一条。通常由 `device_realtime_observation` 最新观测同步而来。
+
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `device_id` | `text` | PK, FK -> `device(id)`, ON DELETE CASCADE |
+| `status` | `text` | NOT NULL |
+| `battery` | `double precision` | NULL, 0 到 100 |
+| `signal_strength` | `double precision` | NULL |
+| `cpu_usage` | `double precision` | NULL, 0 到 100 |
+| `temperature` | `double precision` | NULL |
+| `last_heartbeat` | `timestamptz` | NULL |
+| `health_score` | `double precision` | NULL, 0 到 100 |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+索引/触发器：
 
 - `idx_device_realtime_status(status)`
+- `trg_device_realtime_set_updated_at`
 
-## device_realtime_observation
+### `device_maintenance`
 
-保存 `device_realtime` 相同业务字段的历史版本。每次观测变化后，触发器会选择该设备时间最新的一条同步到 `device_realtime`；删除最新记录时自动回退到上一条。
+设备运维信息，与 `device` 一对一，负责人来自 `person`。
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `text` | PK, default UUID text | 状态观测唯一标识 |
-| `device_id` | `text` | NOT NULL, FK -> `device(id)`, ON DELETE CASCADE | 关联设备 |
-| `observation_time` | `timestamptz` | NOT NULL | 状态观测时间 |
-| `status` | `text` | NOT NULL | online / offline / fault / maintenance |
-| `battery` | `double precision` | NULL, 0 到 100 | 电量 |
-| `signal_strength` | `double precision` | NULL | 信号强度 |
-| `cpu_usage` | `double precision` | NULL, 0 到 100 | CPU 使用率 |
-| `temperature` | `double precision` | NULL | 设备温度 |
-| `last_heartbeat` | `timestamptz` | NULL | 最后心跳 |
-| `health_score` | `double precision` | NULL, 0 到 100 | 健康评分 |
-| `created_at` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
-| `updated_at` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
-
-约束和索引：
-
-- `unique(device_id, observation_time)`
-- `idx_device_realtime_observation_device_time(device_id, observation_time desc)`
-- `idx_device_realtime_observation_time_status(observation_time desc, status)`
-
-## device_maintenance
-
-设备运维管理层。和 `device` 一对一，责任人来自 `person`。
-
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `device_id` | `text` | PK, FK -> `device(id)`, ON DELETE CASCADE | 设备 ID |
-| `maintainer_id` | `text` | NOT NULL, FK -> `person(id)`, ON DELETE RESTRICT | 责任人 |
-| `department` | `text` | NULL | 责任部门 |
-| `maintenance_level` | `text` | NULL | 一级、二级、普通 |
-| `inspect_cycle_days` | `integer` | NULL, `> 0` | 巡检周期 |
-| `last_inspect_time` | `timestamptz` | NULL | 上次巡检 |
-| `next_inspect_time` | `timestamptz` | NULL | 下次巡检 |
-| `last_repair_time` | `timestamptz` | NULL | 最近维修 |
-| `repair_count` | `integer` | NOT NULL, default `0`, `>= 0` | 维修次数 |
-| `maintenance_status` | `text` | NULL | 正常、维修中、停用 |
-| `remark` | `text` | NULL | 备注 |
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `device_id` | `text` | PK, FK -> `device(id)`, ON DELETE CASCADE |
+| `maintainer_id` | `text` | NOT NULL, FK -> `person(id)`, ON DELETE RESTRICT |
+| `department` | `text` | NULL |
+| `maintenance_level` | `text` | NULL |
+| `inspect_cycle_days` | `integer` | NULL, `> 0` |
+| `last_inspect_time` | `timestamptz` | NULL |
+| `next_inspect_time` | `timestamptz` | NULL |
+| `last_repair_time` | `timestamptz` | NULL |
+| `repair_count` | `integer` | NOT NULL, default `0`, `>= 0` |
+| `maintenance_status` | `text` | NULL |
+| `remark` | `text` | NULL |
 
 索引：
 
 - `idx_device_maintenance_maintainer_id(maintainer_id)`
 
-## device_compliance
+### `device_compliance`
 
-设备合规年检层。和 `device` 一对一，用于承载强检、年检、证书、检测机构等信息。
+设备合规和年检信息，与 `device` 一对一。
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `device_id` | `text` | PK, FK -> `device(id)`, ON DELETE CASCADE | 设备 ID |
-| `inspection_required` | `boolean` | NOT NULL, default `false` | 是否强检设备 |
-| `inspection_type` | `text` | NULL | 年检类型，如法检、自检 |
-| `inspection_cycle_months` | `integer` | NULL, `> 0` | 年检周期 |
-| `last_inspection_time` | `timestamptz` | NULL | 上次年检 |
-| `next_inspection_time` | `timestamptz` | NULL | 下次年检 |
-| `inspection_status` | `text` | NULL | pass / pending / expired |
-| `inspection_agency` | `text` | NULL | 检测机构 |
-| `certificate_no` | `text` | NULL | 检测证书编号 |
-| `risk_level` | `text` | NULL | 高、中、低风险 |
-| `updated_at` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `device_id` | `text` | PK, FK -> `device(id)`, ON DELETE CASCADE |
+| `inspection_required` | `boolean` | NOT NULL, default `false` |
+| `inspection_type` | `text` | NULL |
+| `inspection_cycle_months` | `integer` | NULL, `> 0` |
+| `last_inspection_time` | `timestamptz` | NULL |
+| `next_inspection_time` | `timestamptz` | NULL |
+| `inspection_status` | `text` | NULL |
+| `inspection_agency` | `text` | NULL |
+| `certificate_no` | `text` | NULL |
+| `risk_level` | `text` | NULL |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
 
-## person
+触发器：
 
-厂区人员基础信息及设备绑定关系，同时包含状态、培训、健康管理、绩效与安全行为字段。
+- `trg_device_compliance_set_updated_at`
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `text` | PK, default UUID text | 人员唯一标识 |
-| `name` | `text` | NOT NULL | 姓名 |
-| `gender` | `text` | NULL | 性别 |
-| `type` | `text` | NOT NULL | 人员类型，如员工、承包商、访客 |
-| `department` | `text` | NULL | 所属部门 |
-| `position` | `text` | NULL | 岗位 |
-| `company` | `text` | NULL | 所属单位或承包商公司 |
-| `id_card` | `text` | NULL | 身份证或工号 |
-| `phone` | `text` | NULL | 联系方式 |
-| `device_id` | `text` | FK -> `device(id)`, ON DELETE SET NULL | 绑定定位设备 ID |
-| `device_type` | `text` | NULL | 设备类型，如 UWB、RFID、GPS、蓝牙 |
-| `bind_time` | `timestamptz` | NULL | 绑定时间 |
-| `location_zone` | `text` | NULL | 当前所属区域 |
-| `status` | `text` | NOT NULL | 状态，如正常、异常、离线、风险、禁止进入 |
-| `risk_level` | `text` | NULL | 风险等级 |
-| `access_status` | `text` | NULL | 通行状态 |
-| `last_active_time` | `timestamptz` | NULL | 最近活跃时间 |
-| `safety_tag` | `text` | NULL | 安全标签 |
-| `training_status` | `text` | NULL | 培训状态 |
-| `training_score` | `double precision` | NULL, `>= 0` | 综合培训评分 |
-| `last_training_time` | `timestamptz` | NULL | 最近培训时间 |
-| `certificate_status` | `text` | NULL | 证书状态 |
-| `health_status` | `text` | NULL | 健康状态 |
-| `health_risk_level` | `text` | NULL | 职业健康风险等级 |
-| `last_medical_check` | `timestamptz` | NULL | 最近体检时间 |
-| `occupational_disease_flag` | `boolean` | NULL | 是否职业病风险人员 |
-| `exposure_level` | `text` | NULL | 暴露等级 |
-| `performance_score` | `double precision` | NULL, `>= 0` | 综合绩效评分 |
-| `violation_count` | `integer` | NOT NULL, default `0`, `>= 0` | 安全违规次数 |
-| `reward_count` | `integer` | NOT NULL, default `0`, `>= 0` | 安全奖励次数 |
-| `near_miss_count` | `integer` | NOT NULL, default `0`, `>= 0` | 未遂事件上报次数 |
-| `safety_score` | `double precision` | NULL, `>= 0` | 安全积分 |
-| `create_time` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
-| `update_time` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
-| `remark` | `text` | NULL | 备注 |
+### `alarm`
 
-索引：
+告警事件，可关联人员、设备，二者均可为空。
 
-- `idx_person_device_id(device_id)`
-- `idx_person_type_status(type, status)`
-- `idx_person_department(department)`
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID text |
+| `type` | `text` | NOT NULL |
+| `level` | `text` | NOT NULL |
+| `location` | `jsonb` | NOT NULL |
+| `time` | `timestamptz` | NOT NULL |
+| `status` | `text` | NOT NULL |
+| `person_id` | `text` | FK -> `person(id)`, ON DELETE SET NULL |
+| `device_id` | `text` | FK -> `device(id)`, ON DELETE SET NULL |
+| `confidence` | `double precision` | NULL, 0 到 1 |
+| `description` | `text` | NULL |
+| `evidence` | `jsonb` | NULL |
+| `create_time` | `timestamptz` | NOT NULL, default `now()` |
+| `update_time` | `timestamptz` | NOT NULL, default `now()` |
 
-## person_health_observation
-
-保存 `person` 表健康字段的历史版本。一个人员可以有多条观测；数据库触发器会按 `observation_time` 选择最新一条，并同步回 `person` 的健康快照字段。`location_zone` 只记录观测时的区域上下文，不参与回写人员当前位置。
-
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `text` | PK, default UUID text | 健康观测唯一标识 |
-| `person_id` | `text` | NOT NULL, FK -> `person(id)`, ON DELETE CASCADE | 关联人员 |
-| `observation_time` | `timestamptz` | NOT NULL | 观测记录或生效时间 |
-| `health_status` | `text` | NULL | 与 `person.health_status` 一致 |
-| `health_risk_level` | `text` | NULL | 与 `person.health_risk_level` 一致 |
-| `last_medical_check` | `timestamptz` | NULL | 与 `person.last_medical_check` 一致 |
-| `occupational_disease_flag` | `boolean` | NULL | 与 `person.occupational_disease_flag` 一致 |
-| `exposure_level` | `text` | NULL | 与 `person.exposure_level` 一致 |
-| `location_zone` | `text` | NULL | 观测时所在区域快照，与 `person.location_zone` 值域一致 |
-| `create_time` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
-| `update_time` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
-
-约束和索引：
-
-- `unique(person_id, observation_time)`
-- `idx_person_health_observation_person_time(person_id, observation_time desc)`
-- `idx_person_health_observation_time_zone(observation_time desc, location_zone)`
-
-## alarm
-
-系统产生的所有告警事件。
-
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `text` | PK, default UUID text | 告警唯一标识 |
-| `type` | `text` | NOT NULL | 告警类型，如越界、跌倒、设备异常、识别异常 |
-| `level` | `text` | NOT NULL | 告警等级，如一般、严重、重大 |
-| `location` | `jsonb` | NOT NULL | 发生位置，坐标或区域 ID |
-| `time` | `timestamptz` | NOT NULL | 发生时间 |
-| `status` | `text` | NOT NULL | 状态，如新建、确认、处理中、关闭、误报 |
-| `person_id` | `text` | FK -> `person(id)`, ON DELETE SET NULL | 关联人员 ID |
-| `device_id` | `text` | FK -> `device(id)`, ON DELETE SET NULL | 关联设备 ID |
-| `confidence` | `double precision` | NULL, 0 到 1 | AI 置信度 |
-| `description` | `text` | NULL | 告警描述 |
-| `evidence` | `jsonb` | NULL | 图片、视频、传感器证据 |
-| `create_time` | `timestamptz` | NOT NULL, default `now()` | 创建时间 |
-| `update_time` | `timestamptz` | NOT NULL, default `now()` | 更新时间 |
-
-索引：
+索引/触发器：
 
 - `idx_alarm_person_id(person_id)`
 - `idx_alarm_device_id(device_id)`
 - `idx_alarm_status_time(status, time desc)`
 - `idx_alarm_level_time(level, time desc)`
+- `trg_alarm_set_update_time`
 
-## position
+### `position`
 
-人员短期轨迹点表。用于保存近 5 到 30 分钟等短时间窗口内的定位观测，供前端绘制活动轨迹。实时地图和人员卡片应优先读取 `person_position_current` 快照表，避免每次都从高频轨迹点中聚合最新位置。
+人员短期轨迹点。当前项目将它定位为短期轨迹表，用于最近几分钟或一段时间内的轨迹绘制。实时位置快照应优先读取 `person_position_current`。
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `text` | PK, default UUID text | 定位记录 ID |
-| `person_id` | `text` | NOT NULL, FK -> `person(id)`, ON DELETE CASCADE | 人员 ID |
-| `x` | `double precision` | NOT NULL | X 坐标 |
-| `y` | `double precision` | NOT NULL | Y 坐标 |
-| `z` | `double precision` | NULL | Z 坐标 |
-| `source` | `text` | NOT NULL | 数据来源，如北斗、UWB、视觉融合 |
-| `confidence` | `double precision` | NOT NULL, 0 到 1 | 定位置信度 |
-| `timestamp` | `timestamptz` | NOT NULL | 定位时间 |
-| `speed` | `double precision` | NULL, `>= 0` | 移动速度 |
-| `direction` | `double precision` | NULL | 移动方向 |
-| `create_time` | `timestamptz` | NOT NULL, default `now()` | 入库时间 |
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID text |
+| `person_id` | `text` | NOT NULL, FK -> `person(id)`, ON DELETE CASCADE |
+| `x` | `double precision` | NOT NULL |
+| `y` | `double precision` | NOT NULL |
+| `z` | `double precision` | NULL |
+| `source` | `text` | NOT NULL |
+| `confidence` | `double precision` | NOT NULL, 0 到 1 |
+| `timestamp` | `timestamptz` | NOT NULL |
+| `speed` | `double precision` | NULL, `>= 0` |
+| `direction` | `double precision` | NULL |
+| `create_time` | `timestamptz` | NOT NULL, default `now()` |
 
 索引：
 
 - `idx_position_person_timestamp(person_id, timestamp desc)`
 - `idx_position_source_timestamp(source, timestamp desc)`
 
-## person_position_current
+重要：
 
-人员实时位置快照表。每名人员最多一条最新位置，由 `position` 短期轨迹点插入、更新或删除时的触发器自动同步；迁移执行时会用现有 `position` 每人的最新点回填一次。
+- 迁移 `20260713000100_add_person_position_current.sql` 把 `position` 的表注释改为“人员短期轨迹点表”。
+- `position` 的插入、更新、删除会触发同步函数，更新 `person_position_current`。
 
-| 字段 | 类型 | 约束/默认值 | 说明 |
-| --- | --- | --- | --- |
-| `person_id` | `text` | PK, FK -> `person(id)`, ON DELETE CASCADE | 人员 ID，一人一条实时位置快照 |
-| `device_id` | `text` | FK -> `device(id)`, ON DELETE SET NULL | 产生该位置的绑定定位设备 ID，来自 `person.device_id` 快照 |
-| `x` | `double precision` | NOT NULL | 当前 X 坐标，沿用 `position.x` 的厂区局部坐标体系 |
-| `y` | `double precision` | NOT NULL | 当前 Y 坐标，沿用 `position.y` 的厂区局部坐标体系 |
-| `z` | `double precision` | NULL | 当前 Z 坐标 |
-| `source` | `text` | NOT NULL | 定位来源，如北斗、UWB、视觉融合 |
-| `confidence` | `double precision` | NOT NULL, 0 到 1 | 定位置信度 |
-| `timestamp` | `timestamptz` | NOT NULL | 该实时位置对应的定位时间 |
-| `speed` | `double precision` | NULL, `>= 0` | 移动速度 |
-| `direction` | `double precision` | NULL | 移动方向 |
-| `track_position_id` | `text` | FK -> `position(id)`, ON DELETE SET NULL | 该快照来源的短期轨迹点 ID |
-| `created_at` | `timestamptz` | NOT NULL, default `now()` | 快照首次创建时间 |
-| `updated_at` | `timestamptz` | NOT NULL, default `now()` | 快照更新时间 |
+### `person_health_observation`
 
-索引与同步逻辑：
+人员健康历史观测表。它保存与 `person` 健康字段相同含义的数据；一个人可以有多条观测记录。最新观测自动同步回 `person` 的健康快照字段。
+
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID text |
+| `person_id` | `text` | NOT NULL, FK -> `person(id)`, ON DELETE CASCADE |
+| `observation_time` | `timestamptz` | NOT NULL |
+| `health_status` | `text` | NULL |
+| `health_risk_level` | `text` | NULL |
+| `last_medical_check` | `timestamptz` | NULL |
+| `occupational_disease_flag` | `boolean` | NULL |
+| `exposure_level` | `text` | NULL |
+| `location_zone` | `text` | NULL |
+| `create_time` | `timestamptz` | NOT NULL, default `now()` |
+| `update_time` | `timestamptz` | NOT NULL, default `now()` |
+
+约束、索引、触发器：
+
+- `unique(person_id, observation_time)`
+- `idx_person_health_observation_person_time(person_id, observation_time desc)`
+- `idx_person_health_observation_time_zone(observation_time desc, location_zone)`
+- `trg_person_health_observation_set_update_time`
+- `trg_person_health_observation_sync_person`
+
+同步函数：
+
+- `sync_person_health_snapshot(target_person_id text)`
+- `handle_person_health_observation_change()`
+
+同步逻辑：
+
+- 插入/更新/删除观测后，按 `observation_time desc, create_time desc, id desc` 找该人员最新记录。
+- 有最新记录：同步 `health_status`、`health_risk_level`、`last_medical_check`、`occupational_disease_flag`、`exposure_level` 到 `person`。
+- 无记录：把这些健康字段置空。
+- `location_zone` 是观测时区域上下文，不同步回 `person.location_zone`。
+
+### `device_realtime_observation`
+
+设备实时状态历史观测表。最新观测自动同步到 `device_realtime`。
+
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID text |
+| `device_id` | `text` | NOT NULL, FK -> `device(id)`, ON DELETE CASCADE |
+| `observation_time` | `timestamptz` | NOT NULL |
+| `status` | `text` | NOT NULL |
+| `battery` | `double precision` | NULL, 0 到 100 |
+| `signal_strength` | `double precision` | NULL |
+| `cpu_usage` | `double precision` | NULL, 0 到 100 |
+| `temperature` | `double precision` | NULL |
+| `last_heartbeat` | `timestamptz` | NULL |
+| `health_score` | `double precision` | NULL, 0 到 100 |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+约束、索引、触发器：
+
+- `unique(device_id, observation_time)`
+- `idx_device_realtime_observation_device_time(device_id, observation_time desc)`
+- `idx_device_realtime_observation_time_status(observation_time desc, status)`
+- `trg_device_realtime_observation_set_updated_at`
+- `trg_device_realtime_observation_sync_snapshot`
+
+同步函数：
+
+- `sync_device_realtime_snapshot(target_device_id text)`
+- `handle_device_realtime_observation_change()`
+
+同步逻辑：
+
+- 插入/更新/删除观测后，按 `observation_time desc, created_at desc, id desc` 找该设备最新记录。
+- 有最新记录：upsert 到 `device_realtime`。
+- 无记录：删除该设备的 `device_realtime` 快照。
+
+### `person_position_current`
+
+人员实时位置快照表。每名人员最多一条最新位置，用于地图实时展示和快速查询。
+
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `person_id` | `text` | PK, FK -> `person(id)`, ON DELETE CASCADE |
+| `device_id` | `text` | FK -> `device(id)`, ON DELETE SET NULL |
+| `x` | `double precision` | NOT NULL |
+| `y` | `double precision` | NOT NULL |
+| `z` | `double precision` | NULL |
+| `source` | `text` | NOT NULL |
+| `confidence` | `double precision` | NOT NULL, 0 到 1 |
+| `timestamp` | `timestamptz` | NOT NULL |
+| `speed` | `double precision` | NULL, `>= 0` |
+| `direction` | `double precision` | NULL |
+| `track_position_id` | `text` | FK -> `position(id)`, ON DELETE SET NULL |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+索引、触发器：
 
 - `idx_person_position_current_device_id(device_id)`
 - `idx_person_position_current_timestamp(timestamp desc)`
 - `idx_person_position_current_source_timestamp(source, timestamp desc)`
-- `trg_position_sync_person_position_current`：`position` 变化后选择该人员最新轨迹点同步快照；删除最新轨迹点时自动回退到上一条，无轨迹点时删除快照。
+- `trg_person_position_current_set_updated_at`
+- `trg_position_sync_person_position_current`：挂在 `position` 表上。
 
-## Seed 数据
+同步函数：
 
-模拟数据文件位于：
+- `sync_person_position_current(target_person_id text)`
+- `handle_position_change_sync_current()`
 
-- `database/supabase/seeds/seed.sql`
-- `database/supabase/seeds/seed_person_positions.sql`
-- `database/supabase/seeds/seed_alarms.sql`
-- `database/supabase/seeds/seed_person_health.sql`
-- `database/supabase/seeds/seed_device_realtime_observation.sql`
-- `database/supabase/backfill_person_health_observation.sql`（远端一次性回填，不由 `db reset` 自动执行）
+同步逻辑：
 
-当前 seed 覆盖：
+- `position` 插入/更新/删除后，选择该人员最新轨迹点。
+- 最新点排序：`timestamp desc, create_time desc, id desc`。
+- 有最新点：upsert 到 `person_position_current`，并从 `person.device_id` 带入当前绑定设备。
+- 无轨迹点：删除该人员快照。
+- 如果 `position.person_id` 被更新，会同时刷新旧人员和新人员。
+- 迁移执行时会用已有 `position` 每人的最新点回填一次。
 
-- 4 个区域
-- 16 台设备
-- 16 条设备实时状态
-- 25 名人员
-- 4 条设备运维记录
-- 4 条设备合规年检记录
-- 6 条基础告警
-- 50 条最近 7 天的动态告警趋势数据
-- 175 条最近 7 天的人员健康观测数据
-- 112 条最近 7 天的设备实时状态观测数据
-- 16 条基础定位记录
-- 基于当前人员集合动态生成的最近 5 分钟逐秒短期轨迹；当前 25 人时为 7,500 条 `position` 轨迹点，并自动同步 `person_position_current`
+## 5. Seed 与 backfill
 
-执行方式：
+Seed 配置在 `database/supabase/config.toml`：
 
-```bash
-cd database
-supabase db reset
+```toml
+sql_paths = [
+  "./seeds/seed.sql",
+  "./seeds/seed_person_positions.sql",
+  "./seeds/seed_alarms.sql",
+  "./seeds/seed_person_health.sql",
+  "./seeds/seed_device_realtime_observation.sql"
+]
 ```
 
-如果只想推送迁移到远端，由你手动执行：
+### `seed.sql`
 
-```bash
-cd database
-supabase db push --linked
-```
+基础演示数据：
 
-如果确认要把 seed 数据也写入远端，由你手动执行：
+- 4 个区域。
+- 25 名人员。
+- 16 台设备。
+- 设备实时快照、维护、合规、基础告警、基础位置等。
 
-```bash
-cd database
-supabase db push --linked --include-seed
-```
+### `seed_person_positions.sql`
+
+人员短期轨迹演示数据：
+
+- 依赖 `person` 和 `person_position_current`。
+- 先删除 `position.id like 'pos-seed-%'` 的旧 seed 轨迹。
+- 按当前 `person` 实际集合动态生成，不硬编码 25 人。
+- 每人最近 5 分钟、每秒 1 条，共 300 条；25 人时约 7,500 条。
+- 路径是 1 到 6 段随机折线，适合前端人员管理地图展示轨迹、箭头和拐点。
+- 插入 `position` 后通过触发器同步 `person_position_current`，最后也显式调用 `sync_person_position_current(id)` 作为保险。
+
+### `seed_alarms.sql`
+
+告警趋势演示数据：
+
+- 相对当前日期生成，适合展示近 1/3/7/30 天告警趋势。
+- 只应清理/覆盖 seed 自己生成的演示告警，避免误删真实数据。
+
+### `seed_person_health.sql`
+
+人员健康观测演示数据：
+
+- 约 7 天范围。
+- 当前 25 人时约 175 条观测。
+- 最新观测会通过触发器同步回 `person` 健康字段。
+
+### `seed_device_realtime_observation.sql`
+
+设备状态观测演示数据：
+
+- 约 7 天范围。
+- 当前 16 台设备时约 112 条观测。
+- 最新观测会同步回 `device_realtime`。
+
+### 一次性 backfill
+
+不在 `db reset` 的 seed 顺序里，远端已有数据迁移时按需手动执行：
+
+- `database/supabase/backfill_person_health_observation.sql`
+- `database/supabase/backfill_device_realtime_observation.sql`
+
+用途：
+
+- 从已有 `person` 健康字段抽取一份初始 `person_health_observation`。
+- 从已有 `device_realtime` 抽取一份初始 `device_realtime_observation`。
+
+## 6. 与前后端的关系
+
+### Dashboard
+
+`backend/app/api/routes/dashboard.py` 读取：
+
+- `person`
+- `device`
+- `device_realtime`
+- `device_realtime_observation`
+- `person_health_observation`
+- `alarm`
+- `area`
+
+对应前端：
+
+- `frontend/src/pages/Dashboard.jsx`
+
+### 人员管理
+
+`backend/app/api/routes/people.py` 读取：
+
+- `person`
+- `person_position_current`
+- `position`
+
+契约要点：
+
+- `latest_position` 来自 `person_position_current`。
+- `track` 来自 `position`。
+- 轨迹时间窗口基于每个人最新轨迹点往前 5 分钟，而不是数据库 `now()`，避免 seed 演示数据很快过期。
+
+对应前端：
+
+- `frontend/src/pages/PeopleManagement.jsx`
+- `frontend/src/components/PeopleLocationMap/PeopleLocationMap.jsx`
+
+## 7. 修改数据库时的检查清单
+
+修改迁移、seed 或表设计时至少检查：
+
+1. 新迁移是否幂等/顺序正确。
+2. `database/supabase/config.toml` 的 seed 顺序是否仍正确。
+3. seed 是否会误删非 seed 数据。
+4. 触发器同步是否会造成递归或错误覆盖。
+5. 后端 SQL 是否引用了新旧字段名。
+6. 前端是否消费了对应字段。
+7. README 和本文件是否需要同步更新。
+
+不要在没有用户明确授权时替用户执行远端 `supabase db push` 或 `--include-seed`。

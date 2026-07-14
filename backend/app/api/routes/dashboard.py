@@ -42,6 +42,35 @@ def build_distribution(total: int, items: list[tuple[str, str, int]]) -> dict:
     }
 
 
+def build_metric_comparison(
+    current_value: int | float,
+    previous_value: int | float | None,
+    unit: str,
+    decimals: int = 0,
+) -> dict:
+    if previous_value is None:
+        return {
+            "value": None,
+            "label": "昨日无数据",
+            "trend": "flat",
+        }
+
+    delta = float(current_value or 0) - float(previous_value or 0)
+    rounded_delta = round(delta, decimals)
+    trend = "up" if delta > 0 else "down" if delta < 0 else "flat"
+    sign = "+" if rounded_delta > 0 else ""
+    display_value = (
+        f"{rounded_delta:.{decimals}f}" if decimals > 0 else str(int(rounded_delta))
+    )
+
+    return {
+        "value": rounded_delta,
+        "label": f"{sign}{display_value}{unit}",
+        "trend": trend,
+        "previous_value": previous_value,
+    }
+
+
 def build_alarm_title(alarm_type: str | None) -> str:
     if not alarm_type:
         return "未知告警"
@@ -133,19 +162,87 @@ async def get_dashboard_metrics():
             ) as today_alarm_count,
             (
               select count(*)
+              from public.alarm
+              where "time" >= (
+                (date_trunc('day', now() at time zone 'Asia/Shanghai') - interval '1 day')
+                at time zone 'Asia/Shanghai'
+              )
+              and "time" < (
+                date_trunc('day', now() at time zone 'Asia/Shanghai')
+                at time zone 'Asia/Shanghai'
+              )
+            ) as yesterday_alarm_count,
+            (
+              select count(*)
               from public.area
               where enable = true
                 and type in ('危险', '限制')
-            ) as risk_area_count
+            ) as risk_area_count,
+            (
+              select count(*)
+              from public.area
+              where enable = true
+                and type in ('危险', '限制')
+                and create_time < (
+                  date_trunc('day', now() at time zone 'Asia/Shanghai')
+                  at time zone 'Asia/Shanghai'
+                )
+            ) as yesterday_risk_area_count,
+            (
+              select count(distinct pos.person_id)
+              from public.position pos
+              where pos."timestamp" >= (
+                (date_trunc('day', now() at time zone 'Asia/Shanghai') - interval '1 day')
+                at time zone 'Asia/Shanghai'
+              )
+              and pos."timestamp" < (
+                date_trunc('day', now() at time zone 'Asia/Shanghai')
+                at time zone 'Asia/Shanghai'
+              )
+            ) as yesterday_online_person_count
+        ),
+        yesterday_device_latest as (
+          select distinct on (d.id)
+            d.id,
+            latest.status
+          from public.device d
+          left join lateral (
+            select o.status
+            from public.device_realtime_observation o
+            where o.device_id = d.id
+              and o.observation_time < (
+                date_trunc('day', now() at time zone 'Asia/Shanghai')
+                at time zone 'Asia/Shanghai'
+              )
+            order by o.observation_time desc, o.created_at desc, o.id desc
+            limit 1
+          ) latest on true
+          where d.created_at < (
+            date_trunc('day', now() at time zone 'Asia/Shanghai')
+            at time zone 'Asia/Shanghai'
+          )
+        ),
+        yesterday_device_counts as (
+          select
+            count(*) as total,
+            count(*) filter (where status = 'online') as online_count
+          from yesterday_device_latest
         )
         select
           m.online_person_count,
+          m.yesterday_online_person_count,
           case
             when dc.total = 0 then 0
             else round((dc.online_count::numeric / dc.total::numeric) * 100, 1)
           end as device_online_rate,
+          case
+            when ydc.total = 0 then null
+            else round((ydc.online_count::numeric / ydc.total::numeric) * 100, 1)
+          end as yesterday_device_online_rate,
           m.today_alarm_count,
+          m.yesterday_alarm_count,
           m.risk_area_count,
+          m.yesterday_risk_area_count,
           pc.total as person_total_count,
           pc.normal_count as person_normal_count,
           pc.high_risk_count as person_high_risk_count,
@@ -157,7 +254,8 @@ async def get_dashboard_metrics():
           dc.alarm_count as device_alarm_count
         from metrics m
         cross join person_counts pc
-        cross join device_counts dc;
+        cross join device_counts dc
+        cross join yesterday_device_counts ydc;
     """
 
     try:
@@ -184,6 +282,31 @@ async def get_dashboard_metrics():
         "device_online_rate": float(row["device_online_rate"]),
         "today_alarm_count": row["today_alarm_count"],
         "risk_area_count": row["risk_area_count"],
+        "metric_comparisons": {
+            "online_person_count": build_metric_comparison(
+                row["online_person_count"],
+                row["yesterday_online_person_count"],
+                "人",
+            ),
+            "device_online_rate": build_metric_comparison(
+                float(row["device_online_rate"]),
+                float(row["yesterday_device_online_rate"])
+                if row["yesterday_device_online_rate"] is not None
+                else None,
+                "个百分点",
+                1,
+            ),
+            "today_alarm_count": build_metric_comparison(
+                row["today_alarm_count"],
+                row["yesterday_alarm_count"],
+                "条",
+            ),
+            "risk_area_count": build_metric_comparison(
+                row["risk_area_count"],
+                row["yesterday_risk_area_count"],
+                "处",
+            ),
+        },
         "person_status_distribution": build_distribution(
             person_total_count,
             [

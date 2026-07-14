@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
 import { FONT_SIZES } from "../../constants/STYLES";
@@ -18,7 +18,16 @@ const LOCAL_COORDINATE_SCALE = {
   lat: 0.0000038,
 };
 
-const TRACK_POINT_STEP = 5;
+const TURN_DIRECTION_THRESHOLD = 8;
+
+const TRACK_COLORS = {
+  line: "#2563eb",
+  lineGlow: "#dbeafe",
+  arrow: "#1d4ed8",
+  arrowHalo: "#ffffff",
+  turn: "#2563eb",
+  start: "#64748b",
+};
 
 const zoneAnchors = [
   {
@@ -48,7 +57,7 @@ function getStatusTone(status) {
     return "gray";
   }
 
-  if (["异常", "风险", "禁止进入"].includes(status)) {
+  if (["异常", "风险", "禁止进入", "告警"].includes(status)) {
     return "red";
   }
 
@@ -109,6 +118,9 @@ function toTrackCoordinate(point) {
     lat:
       MAP_CENTER.lat -
       (Number(point.y) - LOCAL_ORIGIN.y) * LOCAL_COORDINATE_SCALE.lat,
+    direction: isFiniteCoordinate(point.direction)
+      ? Number(point.direction)
+      : null,
   };
 }
 
@@ -119,10 +131,216 @@ function getVisibleTrackPoints(person) {
     return [];
   }
 
-  return track
-    .filter((_, index) => index % TRACK_POINT_STEP === 0 || index === track.length - 1)
-    .map(toTrackCoordinate)
-    .filter(Boolean);
+  return track.map(toTrackCoordinate).filter(Boolean);
+}
+
+function getTrackDirectionAngle(previousPoint, nextPoint) {
+  return (
+    (Math.atan2(
+      nextPoint.lat - previousPoint.lat,
+      nextPoint.lng - previousPoint.lng
+    ) *
+      180) /
+    Math.PI
+  );
+}
+
+function getAngleDifference(angleA, angleB) {
+  const difference = Math.abs(angleA - angleB) % 360;
+
+  return difference > 180 ? 360 - difference : difference;
+}
+
+function normalizeDirection(direction) {
+  if (!Number.isFinite(direction)) {
+    return null;
+  }
+
+  return ((direction % 360) + 360) % 360;
+}
+
+function getTrackSegments(trackCoordinates) {
+  if (trackCoordinates.length <= 1) {
+    return [];
+  }
+
+  const segments = [];
+  let segmentStartIndex = 0;
+  let previousDirection =
+    normalizeDirection(trackCoordinates[0].direction) ??
+    getTrackDirectionAngle(trackCoordinates[0], trackCoordinates[1]);
+
+  for (let index = 1; index < trackCoordinates.length; index += 1) {
+    const currentDirection =
+      normalizeDirection(trackCoordinates[index].direction) ??
+      getTrackDirectionAngle(
+        trackCoordinates[index - 1],
+        trackCoordinates[index]
+      );
+    const hasTurn =
+      getAngleDifference(previousDirection, currentDirection) >
+      TURN_DIRECTION_THRESHOLD;
+
+    if (hasTurn) {
+      if (index - 1 > segmentStartIndex) {
+        segments.push({
+          startIndex: segmentStartIndex,
+          endIndex: index - 1,
+        });
+      }
+
+      segmentStartIndex = index;
+    }
+
+    previousDirection = currentDirection;
+  }
+
+  if (trackCoordinates.length - 1 > segmentStartIndex) {
+    segments.push({
+      startIndex: segmentStartIndex,
+      endIndex: trackCoordinates.length - 1,
+    });
+  }
+
+  if (segments.length > 0) {
+    return segments;
+  }
+
+  let fallbackStartIndex = 0;
+  let previousAngle = getTrackDirectionAngle(
+    trackCoordinates[0],
+    trackCoordinates[1]
+  );
+  const fallbackSegments = [];
+
+  for (let index = 2; index < trackCoordinates.length; index += 1) {
+    const currentAngle = getTrackDirectionAngle(
+      trackCoordinates[index - 1],
+      trackCoordinates[index]
+    );
+
+    if (getAngleDifference(previousAngle, currentAngle) > 25) {
+      fallbackSegments.push({
+        startIndex: fallbackStartIndex,
+        endIndex: index - 1,
+      });
+      fallbackStartIndex = index - 1;
+    }
+
+    previousAngle = currentAngle;
+  }
+
+  fallbackSegments.push({
+    startIndex: fallbackStartIndex,
+    endIndex: trackCoordinates.length - 1,
+  });
+
+  return fallbackSegments.filter(
+    (segment) => segment.endIndex > segment.startIndex
+  );
+}
+
+function createTrackPoint(BMap, coordinate) {
+  return new BMap.Point(coordinate.lng, coordinate.lat);
+}
+
+function addPolyline(BMap, map, coordinates, options) {
+  map.addOverlay(
+    new BMap.Polyline(
+      coordinates.map((coordinate) => createTrackPoint(BMap, coordinate)),
+      options
+    )
+  );
+}
+
+function rotateVector(vector, angle) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  return {
+    lng: vector.lng * cos - vector.lat * sin,
+    lat: vector.lng * sin + vector.lat * cos,
+  };
+}
+
+function addTrackArrowOverlay(BMap, map, startCoordinate, endCoordinate) {
+  const vector = {
+    lng: endCoordinate.lng - startCoordinate.lng,
+    lat: endCoordinate.lat - startCoordinate.lat,
+  };
+  const segmentLength = Math.hypot(vector.lng, vector.lat);
+
+  if (segmentLength <= 0) {
+    return;
+  }
+
+  const unit = {
+    lng: vector.lng / segmentLength,
+    lat: vector.lat / segmentLength,
+  };
+  const middle = {
+    lng: (startCoordinate.lng + endCoordinate.lng) / 2,
+    lat: (startCoordinate.lat + endCoordinate.lat) / 2,
+  };
+  const arrowLength = Math.min(segmentLength * 0.28, 0.00072);
+  const shaftHalfLength = arrowLength / 2;
+  const headLength = arrowLength * 0.42;
+  const headAngle = (28 * Math.PI) / 180;
+  const tail = {
+    lng: middle.lng - unit.lng * shaftHalfLength,
+    lat: middle.lat - unit.lat * shaftHalfLength,
+  };
+  const tip = {
+    lng: middle.lng + unit.lng * shaftHalfLength,
+    lat: middle.lat + unit.lat * shaftHalfLength,
+  };
+  const leftHeadVector = rotateVector(
+    {
+      lng: -unit.lng * headLength,
+      lat: -unit.lat * headLength,
+    },
+    headAngle
+  );
+  const rightHeadVector = rotateVector(
+    {
+      lng: -unit.lng * headLength,
+      lat: -unit.lat * headLength,
+    },
+    -headAngle
+  );
+  const leftHead = {
+    lng: tip.lng + leftHeadVector.lng,
+    lat: tip.lat + leftHeadVector.lat,
+  };
+  const rightHead = {
+    lng: tip.lng + rightHeadVector.lng,
+    lat: tip.lat + rightHeadVector.lat,
+  };
+  const baseOptions = {
+    strokeOpacity: 0.96,
+    enableMassClear: true,
+  };
+
+  addPolyline(BMap, map, [tail, tip], {
+    ...baseOptions,
+    strokeColor: TRACK_COLORS.arrowHalo,
+    strokeWeight: 8,
+  });
+  addPolyline(BMap, map, [leftHead, tip, rightHead], {
+    ...baseOptions,
+    strokeColor: TRACK_COLORS.arrowHalo,
+    strokeWeight: 8,
+  });
+  addPolyline(BMap, map, [tail, tip], {
+    ...baseOptions,
+    strokeColor: TRACK_COLORS.arrow,
+    strokeWeight: 4,
+  });
+  addPolyline(BMap, map, [leftHead, tip, rightHead], {
+    ...baseOptions,
+    strokeColor: TRACK_COLORS.arrow,
+    strokeWeight: 4,
+  });
 }
 
 function createPersonIcon(BMap, person, isSelected) {
@@ -164,14 +382,15 @@ function PeopleLocationMap({
   people,
   selectedPersonId,
   onPersonSelect,
+  showTrack = true,
   className,
 }) {
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
   const bmapRef = useRef(null);
   const [status, setStatus] = useState("loading");
+  const [showAllPeople, setShowAllPeople] = useState(true);
   const [showPersonNames, setShowPersonNames] = useState(true);
-  const [showTrack, setShowTrack] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
@@ -229,59 +448,84 @@ function PeopleLocationMap({
 
     map.clearOverlays();
 
-    const markerPoints = people.map((person, index) => ({
-      person,
-      coordinate: toMapCoordinate(person, index),
-    }));
-
     const selectedPerson = people.find(
       (person) => person.id === selectedPersonId
     );
+    const visiblePeople = showAllPeople
+      ? people
+      : people.filter((person) => person.id === selectedPersonId);
+    const markerPoints = visiblePeople.map((person) => ({
+      person,
+      coordinate: toMapCoordinate(
+        person,
+        people.findIndex((candidate) => candidate.id === person.id)
+      ),
+    }));
 
-    if (showTrack) {
-      people.forEach((person) => {
-        const trackCoordinates = getVisibleTrackPoints(person);
+    if (showTrack && selectedPerson) {
+      const trackCoordinates = getVisibleTrackPoints(selectedPerson);
 
-        if (trackCoordinates.length <= 1) {
-          return;
-        }
-
-        const isSelected = person.id === selectedPersonId;
+      if (trackCoordinates.length > 1) {
         const trackPoints = trackCoordinates.map(
           (coordinate) => new BMap.Point(coordinate.lng, coordinate.lat)
         );
-        const polyline = new BMap.Polyline(trackPoints, {
-          strokeColor: isSelected ? "#f59e0b" : "#1677ff",
-          strokeWeight: isSelected ? 4 : 2,
-          strokeOpacity: isSelected ? 0.9 : 0.36,
+        const trackHalo = new BMap.Polyline(trackPoints, {
+          strokeColor: TRACK_COLORS.lineGlow,
+          strokeWeight: 8,
+          strokeOpacity: 0.82,
+        });
+        const trackLine = new BMap.Polyline(trackPoints, {
+          strokeColor: TRACK_COLORS.line,
+          strokeWeight: 4,
+          strokeOpacity: 0.94,
+        });
+        const trackSegments = getTrackSegments(trackCoordinates);
+        const startPoint = trackPoints[0];
+        const endPoint = trackPoints[trackPoints.length - 1];
+
+        map.addOverlay(trackHalo);
+        map.addOverlay(trackLine);
+
+        trackSegments.forEach((segment, segmentIndex) => {
+          const startCoordinate = trackCoordinates[segment.startIndex];
+          const endCoordinate = trackCoordinates[segment.endIndex];
+
+          addTrackArrowOverlay(BMap, map, startCoordinate, endCoordinate);
+
+          if (segmentIndex > 0) {
+            const turnPoint = trackPoints[segment.startIndex];
+
+            map.addOverlay(
+              new BMap.Circle(turnPoint, 3.2, {
+                strokeColor: TRACK_COLORS.turn,
+                strokeWeight: 2,
+                strokeOpacity: 0.95,
+                fillColor: "#ffffff",
+                fillOpacity: 0.98,
+              })
+            );
+          }
         });
 
-        map.addOverlay(polyline);
-
-        if (isSelected) {
-          const startPoint = trackPoints[0];
-          const endPoint = trackPoints[trackPoints.length - 1];
-
-          map.addOverlay(
-            new BMap.Circle(startPoint, 3.5, {
-              strokeColor: "#8b95a5",
-              strokeWeight: 1,
-              strokeOpacity: 0.8,
-              fillColor: "#8b95a5",
-              fillOpacity: 0.9,
-            })
-          );
-          map.addOverlay(
-            new BMap.Circle(endPoint, 4.5, {
-              strokeColor: "#f59e0b",
-              strokeWeight: 2,
-              strokeOpacity: 0.95,
-              fillColor: "#f59e0b",
-              fillOpacity: 0.95,
-            })
-          );
-        }
-      });
+        map.addOverlay(
+          new BMap.Circle(startPoint, 3.5, {
+            strokeColor: TRACK_COLORS.start,
+            strokeWeight: 1,
+            strokeOpacity: 0.8,
+            fillColor: TRACK_COLORS.start,
+            fillOpacity: 0.9,
+          })
+        );
+        map.addOverlay(
+          new BMap.Circle(endPoint, 4.5, {
+            strokeColor: TRACK_COLORS.line,
+            strokeWeight: 2,
+            strokeOpacity: 0.95,
+            fillColor: TRACK_COLORS.line,
+            fillOpacity: 0.95,
+          })
+        );
+      }
     }
 
     markerPoints.forEach(({ person, coordinate }) => {
@@ -292,7 +536,7 @@ function PeopleLocationMap({
       });
       if (showPersonNames) {
         const label = new BMap.Label(person.name, {
-          offset: new BMap.Size(14, isSelected ? -44 : -39),
+          offset: new BMap.Size(14, -24),
         });
 
         label.setStyle({
@@ -321,7 +565,14 @@ function PeopleLocationMap({
       const coordinate = toMapCoordinate(selectedPerson, selectedIndex);
       map.panTo(new BMap.Point(coordinate.lng, coordinate.lat));
     }
-  }, [onPersonSelect, people, selectedPersonId, showPersonNames, showTrack]);
+  }, [
+    onPersonSelect,
+    people,
+    selectedPersonId,
+    showAllPeople,
+    showPersonNames,
+    showTrack,
+  ]);
 
   return (
     <MapFrame className={className}>
@@ -330,18 +581,18 @@ function PeopleLocationMap({
         <MapToggle>
           <input
             type="checkbox"
-            checked={showPersonNames}
-            onChange={(event) => setShowPersonNames(event.target.checked)}
+            checked={showAllPeople}
+            onChange={(event) => setShowAllPeople(event.target.checked)}
           />
-          <span>显示姓名</span>
+          <span>显示所有人员</span>
         </MapToggle>
         <MapToggle>
           <input
             type="checkbox"
-            checked={showTrack}
-            onChange={(event) => setShowTrack(event.target.checked)}
+            checked={showPersonNames}
+            onChange={(event) => setShowPersonNames(event.target.checked)}
           />
-          <span>显示轨迹（5分钟）</span>
+          <span>显示姓名</span>
         </MapToggle>
       </MapOptions>
       {status === "loading" ? <MapStatus>地图加载中...</MapStatus> : null}

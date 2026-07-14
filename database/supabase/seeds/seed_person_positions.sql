@@ -46,7 +46,7 @@ person_anchor as (
       when sp.location_zone like '%办公%' or sp.location_zone like '%综合%' then 130.0
       else 300.0
     end
-      + (((sp.person_order - 1) % 5) - 2) * 36.0
+      + (((sp.person_order - 1) % 5) - 2) * 120.0
       + sin(sp.person_order::double precision * 1.37) * 7.0 as base_x,
     case
       when sp.location_zone like '%A区%' or sp.location_zone like '%储罐%' then 170.0
@@ -55,49 +55,134 @@ person_anchor as (
       when sp.location_zone like '%办公%' or sp.location_zone like '%综合%' then 115.0
       else 230.0
     end
-      + ((((sp.person_order - 1) / 5) % 5) - 2) * 28.0
+      + ((((sp.person_order - 1) / 5) % 5) - 2) * 90.0
       + cos(sp.person_order::double precision * 1.91) * 6.0 as base_y
   from seeded_person sp
 ),
-track_sample as (
+person_path_base as (
   select
     pa.*,
+    (1 + floor(random() * 6))::integer as segment_count,
+    radians(floor(random() * 8) * 45.0 + random() * 18.0 - 9.0) as start_angle,
+    case
+      when random() < 0.5 then -1.0
+      else 1.0
+    end * radians(38.0 + random() * 74.0) as turn_angle,
+    case
+      when pa.status = '离线' then 450.0
+      when pa.status in ('异常', '风险', '禁止进入') then 2600.0
+      else 2100.0
+    end as path_length
+  from person_anchor pa
+),
+track_sample as (
+  select
+    ppb.*,
     so.value as second_offset,
     now() - make_interval(secs => so.value) as position_time,
     case
-      when pa.device_type is not null then pa.device_type
-      when pa.status = '离线' then 'UWB'
-      when pa.status in ('异常', '风险', '禁止进入') then '视觉融合'
-      when pa.person_order % 5 = 0 then '北斗'
-      when pa.person_order % 3 = 0 then '蓝牙AOA'
+      when ppb.device_type is not null then ppb.device_type
+      when ppb.status = '离线' then 'UWB'
+      when ppb.status in ('异常', '风险', '禁止进入') then '视觉融合'
+      when ppb.person_order % 5 = 0 then '北斗'
+      when ppb.person_order % 3 = 0 then '蓝牙AOA'
       else 'UWB'
     end as location_source,
     case
-      when pa.status = '离线' then 0.58
-      when pa.status in ('异常', '风险', '禁止进入') then 0.82
-      when pa.risk_level in ('高', '极高') then 0.86
+      when ppb.status = '离线' then 0.58
+      when ppb.status in ('异常', '风险', '禁止进入') then 0.82
+      when ppb.risk_level in ('高', '极高') then 0.86
       else 0.94
     end as confidence_base,
     case
-      when pa.status = '离线' then 0.04
-      when pa.status in ('异常', '风险', '禁止进入') then 1.85
+      when ppb.status = '离线' then 0.04
+      when ppb.status in ('异常', '风险', '禁止进入') then 1.85
       else 0.85
     end as movement_scale
-  from person_anchor pa
+  from person_path_base ppb
   cross join second_offset so
+),
+path_segment as (
+  select
+    ppb.person_id,
+    ppb.segment_count,
+    segment_index,
+    ppb.start_angle
+      + ppb.turn_angle * segment_index
+      + (random() - 0.5) * radians(20.0) as angle,
+    ppb.path_length
+      * (0.75 + random() * 0.5)
+      / ppb.segment_count as segment_length
+  from person_path_base ppb
+  cross join lateral generate_series(0, ppb.segment_count - 1) as segment(segment_index)
+),
+path_vector as (
+  select
+    ps.*,
+    cos(ps.angle) * ps.segment_length as dx,
+    sin(ps.angle) * ps.segment_length as dy
+  from path_segment ps
+),
+path_geometry as (
+  select
+    pv.*,
+    coalesce(
+      sum(dx) over (
+        partition by person_id
+        order by segment_index
+        rows between unbounded preceding and 1 preceding
+      ),
+      0
+    ) as start_dx,
+    coalesce(
+      sum(dy) over (
+        partition by person_id
+        order by segment_index
+        rows between unbounded preceding and 1 preceding
+      ),
+      0
+    ) as start_dy,
+    sum(dx) over (partition by person_id) as total_dx,
+    sum(dy) over (partition by person_id) as total_dy
+  from path_vector pv
+),
+track_progress as (
+  select
+    ts.*,
+    (299 - second_offset)::double precision / 299.0 as progress,
+    least(
+      floor(((299 - second_offset)::double precision / 299.0) * segment_count),
+      segment_count - 1
+    )::integer as segment_index,
+    case
+      when (299 - second_offset) = 299 then 1.0
+      else (((299 - second_offset)::double precision / 299.0) * segment_count)
+        - floor(((299 - second_offset)::double precision / 299.0) * segment_count)
+    end as segment_progress
+  from track_sample ts
+),
+track_plan as (
+  select
+    tp.*,
+    pg.angle,
+    pg.segment_length,
+    pg.dx,
+    pg.dy,
+    pg.start_dx,
+    pg.start_dy,
+    pg.total_dx,
+    pg.total_dy
+  from track_progress tp
+  join path_geometry pg
+    on pg.person_id = tp.person_id
+   and pg.segment_index = tp.segment_index
 ),
 position_sample as (
   select
     format('pos-seed-%s-s%03s', person_id, second_offset) as id,
     person_id,
-    base_x
-      + sin((299 - second_offset + person_order * 7)::double precision / 17.0) * movement_scale * 7.0
-      + cos((299 - second_offset)::double precision / 29.0) * movement_scale * 3.0
-      as x,
-    base_y
-      + cos((299 - second_offset + person_order * 5)::double precision / 19.0) * movement_scale * 6.0
-      + sin((299 - second_offset)::double precision / 23.0) * movement_scale * 2.5
-      as y,
+    base_x - total_dx / 2.0 + start_dx + dx * segment_progress as x,
+    base_y - total_dy / 2.0 + start_dy + dy * segment_progress as y,
     1.0 + ((person_order % 4) * 0.1) as z,
     location_source as source,
     least(
@@ -111,14 +196,14 @@ position_sample as (
     position_time as "timestamp",
     greatest(
       0,
-      movement_scale
-        + sin((299 - second_offset + person_order)::double precision / 13.0) * 0.18
+      segment_length / greatest(1, 299.0 / segment_count)
     ) as speed,
-    mod(
-      360 + person_order * 17 + (299 - second_offset) * 2,
-      360
-    )::double precision as direction
-  from track_sample
+    case
+      when degrees(atan2(dy, dx)) < 0
+        then degrees(atan2(dy, dx)) + 360.0
+      else degrees(atan2(dy, dx))
+    end::double precision as direction
+  from track_plan
 )
 insert into public.position (
   id,
