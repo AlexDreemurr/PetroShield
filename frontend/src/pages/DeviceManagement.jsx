@@ -28,182 +28,14 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
 const DEVICE_TABS = [
-  { key: "all", label: "全部设备", count: 1560 },
-  { key: "online", label: "在线", count: 1368 },
-  { key: "offline", label: "离线", count: 128 },
-  { key: "alarm", label: "告警", count: 64 },
-  { key: "fault", label: "异常", count: 4 },
+  { key: "all", label: "全部设备" },
+  { key: "online", label: "在线" },
+  { key: "offline", label: "离线" },
+  { key: "alarm", label: "告警" },
+  { key: "fault", label: "异常" },
 ];
 
-const DEVICE_DEMO_ITEMS = [
-  {
-    id: "TEMP-1F-001",
-    name: "温湿度传感器-1F-001",
-    type: "温湿度传感器",
-    status: "online",
-    signal: -65,
-    battery: 86,
-    location: "1号楼 / 1层 / 配电间",
-    heartbeat: "2025-06-30 16:28:15",
-    iconType: "temperature",
-    iconTone: "blue",
-    health: 96,
-    organization: "石安盾科技园区",
-    installTime: "2024-12-18 09:30:00",
-    firmware: "v2.3.7",
-    hardware: "v1.1",
-    protocol: "LoRaWAN",
-    healthScores: [98, 95, 94, 96],
-  },
-  {
-    id: "SMK-2F-015",
-    name: "烟感探测器-2F-015",
-    type: "烟感探测器",
-    status: "online",
-    signal: -72,
-    battery: 92,
-    location: "2号楼 / 2层 / 办公区B",
-    heartbeat: "2025-06-30 16:28:07",
-    iconType: "smoke",
-    iconTone: "gray",
-    health: 95,
-  },
-  {
-    id: "DOOR-3F-003",
-    name: "门磁传感器-3F-003",
-    type: "门磁传感器",
-    status: "online",
-    signal: -68,
-    battery: 71,
-    location: "3号楼 / 3层 / 机房门",
-    heartbeat: "2025-06-30 16:27:59",
-    iconType: "door",
-    iconTone: "gray",
-    health: 91,
-  },
-  {
-    id: "LEAK-B1-002",
-    name: "水浸传感器-B1-002",
-    type: "水浸传感器",
-    status: "offline",
-    signal: null,
-    battery: 23,
-    location: "1号楼 / 地下1层 / 水泵房",
-    heartbeat: "2025-06-30 12:14:32",
-    iconType: "water",
-    iconTone: "blue",
-    health: 52,
-  },
-  {
-    id: "METER-1F-008",
-    name: "智能电表-1F-008",
-    type: "智能电表",
-    status: "online",
-    signal: -58,
-    battery: null,
-    location: "1号楼 / 1层 / 配电箱A",
-    heartbeat: "2025-06-30 16:28:12",
-    iconType: "meter",
-    iconTone: "gray",
-    health: 93,
-    powerMode: "外部供电",
-  },
-  {
-    id: "PIR-2F-021",
-    name: "红外人体探测器-2F-021",
-    type: "红外人体探测器",
-    status: "online",
-    signal: -75,
-    battery: 88,
-    location: "2号楼 / 2层 / 走廊",
-    heartbeat: "2025-06-30 16:28:01",
-    iconType: "pir",
-    iconTone: "gray",
-    health: 89,
-  },
-  {
-    id: "GAS-B1-006",
-    name: "可燃气体探测器-B1-006",
-    type: "可燃气体探测器",
-    status: "alarm",
-    signal: -61,
-    battery: 64,
-    location: "1号楼 / 地下1层 / 厨房",
-    heartbeat: "2025-06-30 16:27:48",
-    iconType: "gas",
-    iconTone: "orange",
-    health: 75,
-  },
-  {
-    id: "CAM-GATE-01",
-    name: "摄像头-大门-01",
-    type: "网络摄像头",
-    status: "online",
-    signal: -55,
-    battery: null,
-    location: "大门口",
-    heartbeat: "2025-06-30 16:28:18",
-    iconType: "camera",
-    iconTone: "gray",
-    health: 90,
-    powerMode: "外部供电",
-  },
-  {
-    id: "TEMP-3F-009",
-    name: "温湿度传感器-3F-009",
-    type: "温湿度传感器",
-    status: "fault",
-    signal: -82,
-    battery: 18,
-    location: "3号楼 / 3层 / 资料室",
-    heartbeat: "2025-06-30 16:20:34",
-    iconType: "temperature",
-    iconTone: "blue",
-    health: 48,
-  },
-];
-
-const RECENT_ALARMS = [
-  {
-    type: "温度超限告警",
-    time: "2025-06-29 14:22:31",
-    status: "已恢复",
-    tone: "red",
-  },
-  {
-    type: "设备电量低",
-    time: "2025-06-28 09:11:07",
-    status: "已恢复",
-    tone: "yellow",
-  },
-  {
-    type: "信号弱告警",
-    time: "2025-06-25 16:45:21",
-    status: "已恢复",
-    tone: "orange",
-  },
-];
-
-const MAINTENANCE_ROWS = [
-  {
-    type: "巡检",
-    content: "例行设备巡检",
-    person: "李工",
-    time: "2025-06-20 10:15",
-  },
-  {
-    type: "调试",
-    content: "校准温湿度传感器",
-    person: "张工",
-    time: "2025-05-18 14:30",
-  },
-  {
-    type: "更换电池",
-    content: "更换电池",
-    person: "王工",
-    time: "2025-04-12 09:20",
-  },
-];
+const DEFAULT_PAGE_SIZE = 9;
 
 const statusLabels = {
   online: "在线",
@@ -324,7 +156,10 @@ function normalizeApiDevice(item) {
     name: item.name,
     type: item.type,
     status,
-    signal: realtime.signal_strength == null ? null : -Math.round(100 - realtime.signal_strength / 2),
+    signal:
+      realtime.signal_strength == null
+        ? null
+        : -Math.round(100 - realtime.signal_strength / 2),
     battery: realtime.battery == null ? null : Math.round(realtime.battery),
     location: locationText,
     heartbeat: formatDateTime(realtime.last_heartbeat),
@@ -338,6 +173,19 @@ function normalizeApiDevice(item) {
     protocol: item.type === "摄像头" ? "TCP/IP" : "LoRaWAN",
     powerMode: realtime.battery == null ? "外部供电" : null,
     recentAlarms: item.recent_alarms,
+    maintenanceRows: item.maintenance?.status
+      ? [
+          {
+            type: item.maintenance.status,
+            content: item.maintenance.remark ?? "--",
+            person: item.maintenance.maintainer_name ?? "--",
+            time: formatDateTime(
+              item.maintenance.last_repair_time ??
+                item.maintenance.last_inspect_time
+            ),
+          },
+        ]
+      : [],
   };
 }
 
@@ -355,7 +203,9 @@ function filterDevices(devices, filters, activeTab, keyword) {
       !normalizedKeyword ||
       [device.name, device.id, device.type, device.location]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedKeyword));
+        .some((value) =>
+          String(value).toLowerCase().includes(normalizedKeyword)
+        );
 
     return (
       matchesTab &&
@@ -384,7 +234,8 @@ function DeviceGlyph({ type }) {
 }
 
 function SignalBars({ value }) {
-  const bars = value == null ? 0 : Math.max(1, Math.min(5, Math.round((100 + value) / 8)));
+  const bars =
+    value == null ? 0 : Math.max(1, Math.min(5, Math.round((100 + value) / 8)));
 
   return (
     <SignalWrap aria-label={`信号 ${value ?? "--"} dBm`}>
@@ -426,7 +277,11 @@ function DeviceCard({ device, isSelected, onSelect }) {
           <DeviceMeta>ID：{device.id}</DeviceMeta>
           <DeviceMeta>类型：{device.type}</DeviceMeta>
         </DeviceIdentity>
-        <MoreButton type="button" aria-label="更多操作" onClick={(event) => event.stopPropagation()}>
+        <MoreButton
+          type="button"
+          aria-label="更多操作"
+          onClick={(event) => event.stopPropagation()}
+        >
           <EllipsisVertical size={17} />
         </MoreButton>
       </DeviceCardTop>
@@ -440,11 +295,16 @@ function DeviceCard({ device, isSelected, onSelect }) {
         <DeviceFact>
           <span>信号：</span>
           <SignalBars value={device.signal} />
-          <ValueText>{device.signal == null ? "--" : `${device.signal} dBm`}</ValueText>
+          <ValueText>
+            {device.signal == null ? "--" : `${device.signal} dBm`}
+          </ValueText>
         </DeviceFact>
         <DeviceFact>
           <span>电量：</span>
-          <BatteryIndicator value={device.battery} powerMode={device.powerMode} />
+          <BatteryIndicator
+            value={device.battery}
+            powerMode={device.powerMode}
+          />
         </DeviceFact>
         <DeviceFact>
           <span>位置：</span>
@@ -486,139 +346,232 @@ function HealthRing({ value }) {
 }
 
 function DetailDrawer({ device, onClose }) {
+  const [activeTab, setActiveTab] = useState("detail");
+  const [copiedField, setCopiedField] = useState(null);
   const healthScores = device.healthScores ?? [
     Math.min(99, device.health + 2),
     Math.max(70, device.health - 1),
     Math.max(70, device.health - 2),
     device.health,
   ];
-  const alarms = device.recentAlarms?.length ? device.recentAlarms : RECENT_ALARMS;
+  const alarms = device.recentAlarms ?? [];
+  const maintenanceRows = device.maintenanceRows ?? [];
+
+  async function handleCopy(value, field) {
+    if (!value) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(String(value));
+      setCopiedField(field);
+      window.setTimeout(() => setCopiedField(null), 1200);
+    } catch {
+      setCopiedField(null);
+    }
+  }
 
   return (
     <Drawer>
       <DrawerHeader>
         <DrawerTitle>
-          {device.name}
-          <StatusBadge $tone={statusTone[device.status]}>{statusLabels[device.status]}</StatusBadge>
+          <DrawerTitleText>{device.name}</DrawerTitleText>
+          <CopyButton
+            type="button"
+            aria-label="复制设备名称"
+            title={copiedField === "name" ? "已复制" : "复制设备名称"}
+            onClick={() => handleCopy(device.name, "name")}
+          >
+            <Copy size={13} />
+          </CopyButton>
+          <StatusBadge $tone={statusTone[device.status]}>
+            {statusLabels[device.status]}
+          </StatusBadge>
         </DrawerTitle>
-        <CloseDrawerButton type="button" aria-label="关闭详情" onClick={onClose}>
+        <CloseDrawerButton
+          type="button"
+          aria-label="关闭详情"
+          onClick={onClose}
+        >
           <X size={18} />
         </CloseDrawerButton>
       </DrawerHeader>
 
       <DrawerTabs>
-        <DrawerTab $active>设备详情</DrawerTab>
-        <DrawerTab>运行数据</DrawerTab>
-        <DrawerTab>告警记录</DrawerTab>
-        <DrawerTab>维护记录</DrawerTab>
+        <DrawerTab
+          type="button"
+          $active={activeTab === "detail"}
+          onClick={() => setActiveTab("detail")}
+        >
+          设备详情
+        </DrawerTab>
+        <DrawerTab
+          type="button"
+          $active={activeTab === "runtime"}
+          onClick={() => setActiveTab("runtime")}
+        >
+          运行数据
+        </DrawerTab>
+        <DrawerTab
+          type="button"
+          $active={activeTab === "alarms"}
+          onClick={() => setActiveTab("alarms")}
+        >
+          告警记录
+        </DrawerTab>
+        <DrawerTab
+          type="button"
+          $active={activeTab === "maintenance"}
+          onClick={() => setActiveTab("maintenance")}
+        >
+          维护记录
+        </DrawerTab>
       </DrawerTabs>
 
       <DrawerBody>
-        <DeviceOverview>
-          <LargeDeviceIcon $tone={device.iconTone}>
-            <DeviceGlyph type={device.iconType} />
-          </LargeDeviceIcon>
-          <DeviceInfoGrid>
-            <InfoLabel>设备ID</InfoLabel>
-            <InfoValue>
-              {device.id}
-              <Copy size={13} />
-            </InfoValue>
-            <InfoLabel>设备类型</InfoLabel>
-            <InfoValue>{device.type}</InfoValue>
-            <InfoLabel>所属组织</InfoLabel>
-            <InfoValue>{device.organization ?? "石安盾科技园区"}</InfoValue>
-            <InfoLabel>安装位置</InfoLabel>
-            <InfoValue>{device.location}</InfoValue>
-            <InfoLabel>安装时间</InfoLabel>
-            <InfoValue>{device.installTime ?? "2024-12-18 09:30:00"}</InfoValue>
-            <InfoLabel>设备状态</InfoLabel>
-            <InfoValue>
-              <StatusDot $tone={statusTone[device.status]} />
-              <StatusText $tone={statusTone[device.status]}>
-                {statusLabels[device.status]}
-              </StatusText>
-            </InfoValue>
-            <InfoLabel>信号强度</InfoLabel>
-            <InfoValue>
-              <SignalBars value={device.signal} />
-              {device.signal == null ? "--" : `${device.signal} dBm`}
-            </InfoValue>
-            <InfoLabel>电量</InfoLabel>
-            <InfoValue>
-              <BatteryIndicator value={device.battery} powerMode={device.powerMode} />
-            </InfoValue>
-            <InfoLabel>固件版本</InfoLabel>
-            <InfoValue>{device.firmware ?? "v2.3.7"}</InfoValue>
-            <InfoLabel>硬件版本</InfoLabel>
-            <InfoValue>{device.hardware ?? "v1.1"}</InfoValue>
-            <InfoLabel>通信协议</InfoLabel>
-            <InfoValue>{device.protocol ?? "LoRaWAN"}</InfoValue>
-            <InfoLabel>最后心跳</InfoLabel>
-            <InfoValue>{device.heartbeat}</InfoValue>
-          </DeviceInfoGrid>
-          <HealthBlock>
-            <SmallLabel>设备健康度</SmallLabel>
-            <HealthRing value={device.health} />
-          </HealthBlock>
-        </DeviceOverview>
+        {activeTab === "detail" ? (
+          <>
+            <DeviceOverview>
+              <LargeDeviceIcon $tone={device.iconTone}>
+                <DeviceGlyph type={device.iconType} />
+              </LargeDeviceIcon>
+              <DeviceInfoGrid>
+                <InfoLabel>设备ID</InfoLabel>
+                <InfoValue>
+                  {device.id}
+                  <CopyButton
+                    type="button"
+                    aria-label="复制设备ID"
+                    title={copiedField === "id" ? "已复制" : "复制设备ID"}
+                    onClick={() => handleCopy(device.id, "id")}
+                  >
+                    <Copy size={13} />
+                  </CopyButton>
+                </InfoValue>
+                <InfoLabel>设备类型</InfoLabel>
+                <InfoValue>{device.type}</InfoValue>
+                <InfoLabel>所属组织</InfoLabel>
+                <InfoValue>{device.organization ?? "石安盾科技园区"}</InfoValue>
+                <InfoLabel>安装位置</InfoLabel>
+                <InfoValue>{device.location}</InfoValue>
+                <InfoLabel>安装时间</InfoLabel>
+                <InfoValue>{device.installTime ?? "--"}</InfoValue>
+                <InfoLabel>设备状态</InfoLabel>
+                <InfoValue>
+                  <StatusDot $tone={statusTone[device.status]} />
+                  <StatusText $tone={statusTone[device.status]}>
+                    {statusLabels[device.status]}
+                  </StatusText>
+                </InfoValue>
+                <InfoLabel>信号强度</InfoLabel>
+                <InfoValue>
+                  <SignalBars value={device.signal} />
+                  {device.signal == null ? "--" : `${device.signal} dBm`}
+                </InfoValue>
+                <InfoLabel>电量</InfoLabel>
+                <InfoValue>
+                  <BatteryIndicator
+                    value={device.battery}
+                    powerMode={device.powerMode}
+                  />
+                </InfoValue>
+                <InfoLabel>固件版本</InfoLabel>
+                <InfoValue>{device.firmware ?? "--"}</InfoValue>
+                <InfoLabel>硬件版本</InfoLabel>
+                <InfoValue>{device.hardware ?? "--"}</InfoValue>
+                <InfoLabel>通信协议</InfoLabel>
+                <InfoValue>{device.protocol ?? "--"}</InfoValue>
+                <InfoLabel>最后心跳</InfoLabel>
+                <InfoValue>{device.heartbeat}</InfoValue>
+              </DeviceInfoGrid>
+              <HealthBlock>
+                <SmallLabel>设备健康度</SmallLabel>
+                <HealthRing value={device.health} />
+              </HealthBlock>
+            </DeviceOverview>
 
-        <Divider />
+            <Divider />
 
-        <SectionHeader>
-          <SectionTitle>健康评估</SectionTitle>
-        </SectionHeader>
-        <ScoreGrid>
-          {["稳定性", "数据完整性", "响应时效", "总体评分"].map((label, index) => (
-            <ScoreCard key={label}>
-              <ScoreLabel>{label}</ScoreLabel>
-              <ScoreValue>{healthScores[index]}</ScoreValue>
-              <ScoreState>优</ScoreState>
-            </ScoreCard>
-          ))}
-        </ScoreGrid>
+            <SectionHeader>
+              <SectionTitle>健康评估</SectionTitle>
+            </SectionHeader>
+            <ScoreGrid>
+              {["稳定性", "数据完整性", "响应时效", "总体评分"].map(
+                (label, index) => (
+                  <ScoreCard key={label}>
+                    <ScoreLabel>{label}</ScoreLabel>
+                    <ScoreValue>{healthScores[index]}</ScoreValue>
+                    <ScoreState>优</ScoreState>
+                  </ScoreCard>
+                )
+              )}
+            </ScoreGrid>
 
-        <SectionHeader>
-          <SectionTitle>最近告警</SectionTitle>
-          <ViewAllButton type="button">查看全部 <ChevronRight size={12} /></ViewAllButton>
-        </SectionHeader>
-        <AlarmList>
-          {alarms.map((alarm) => (
-            <AlarmItem key={`${alarm.type}-${alarm.time}`}>
-              <AlarmIcon $tone={alarm.tone ?? "orange"}>
-                <Zap size={13} />
-              </AlarmIcon>
-              <AlarmName>{alarm.type}</AlarmName>
-              <AlarmTime>{formatDateTime(alarm.time)}</AlarmTime>
-              <RecoveredBadge>{alarm.status}</RecoveredBadge>
-            </AlarmItem>
-          ))}
-        </AlarmList>
+            <SectionHeader>
+              <SectionTitle>最近告警</SectionTitle>
+              <ViewAllButton type="button">
+                查看全部 <ChevronRight size={12} />
+              </ViewAllButton>
+            </SectionHeader>
+            {alarms.length > 0 ? (
+              <AlarmList>
+                {alarms.map((alarm) => (
+                  <AlarmItem key={`${alarm.type}-${alarm.time}`}>
+                    <AlarmIcon $tone={alarm.tone ?? "orange"}>
+                      <Zap size={13} />
+                    </AlarmIcon>
+                    <AlarmName>{alarm.type}</AlarmName>
+                    <AlarmTime>{formatDateTime(alarm.time)}</AlarmTime>
+                    <RecoveredBadge>{alarm.status}</RecoveredBadge>
+                  </AlarmItem>
+                ))}
+              </AlarmList>
+            ) : (
+              <DrawerEmpty>暂无告警记录</DrawerEmpty>
+            )}
 
-        <SectionHeader>
-          <SectionTitle>维护记录</SectionTitle>
-          <ViewAllButton type="button">查看全部 <ChevronRight size={12} /></ViewAllButton>
-        </SectionHeader>
-        <MaintenanceTable>
-          <thead>
-            <tr>
-              <th>维护类型</th>
-              <th>维护内容</th>
-              <th>维护人</th>
-              <th>维护时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MAINTENANCE_ROWS.map((row) => (
-              <tr key={`${row.type}-${row.time}`}>
-                <td>{row.type}</td>
-                <td>{row.content}</td>
-                <td>{row.person}</td>
-                <td>{row.time}</td>
-              </tr>
-            ))}
-          </tbody>
-        </MaintenanceTable>
+            <SectionHeader>
+              <SectionTitle>维护记录</SectionTitle>
+              <ViewAllButton type="button">
+                查看全部 <ChevronRight size={12} />
+              </ViewAllButton>
+            </SectionHeader>
+            <MaintenanceTable>
+              <thead>
+                <tr>
+                  <th>维护类型</th>
+                  <th>维护内容</th>
+                  <th>维护人</th>
+                  <th>维护时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {maintenanceRows.length > 0 ? (
+                  maintenanceRows.map((row) => (
+                    <tr key={`${row.type}-${row.time}`}>
+                      <td>{row.type}</td>
+                      <td>{row.content}</td>
+                      <td>{row.person}</td>
+                      <td>{row.time}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <EmptyTableCell colSpan="4">暂无维护记录</EmptyTableCell>
+                  </tr>
+                )}
+              </tbody>
+            </MaintenanceTable>
+          </>
+        ) : (
+          <TabFailureState>
+            {activeTab === "runtime"
+              ? "运行数据加载失败"
+              : activeTab === "alarms"
+              ? "告警记录加载失败"
+              : "维护记录加载失败"}
+          </TabFailureState>
+        )}
       </DrawerBody>
 
       <DrawerFooter>
@@ -640,10 +593,15 @@ function DetailDrawer({ device, onClose }) {
 }
 
 function DeviceManagement() {
-  const [devices, setDevices] = useState(DEVICE_DEMO_ITEMS);
+  const [devices, setDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
   const [keyword, setKeyword] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSizeInput, setPageSizeInput] = useState(String(DEFAULT_PAGE_SIZE));
+  const [jumpPageInput, setJumpPageInput] = useState("1");
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const [filters, setFilters] = useState({
     type: "all",
     status: "all",
@@ -655,20 +613,29 @@ function DeviceManagement() {
 
     async function loadDevices() {
       try {
+        setIsLoading(true);
+        setHasError(false);
         const response = await fetch(`${API_BASE_URL}/devices/overview`);
 
         if (!response.ok) {
-          return;
+          throw new Error("Failed to load devices");
         }
 
         const data = await response.json();
         const apiDevices = (data.items ?? []).map(normalizeApiDevice);
 
-        if (isMounted && apiDevices.length > 0) {
+        if (isMounted) {
           setDevices(apiDevices);
         }
       } catch {
-        // Keep the screenshot-faithful demo data when the API is unavailable.
+        if (isMounted) {
+          setHasError(true);
+          setDevices([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     }
 
@@ -683,8 +650,62 @@ function DeviceManagement() {
     () => filterDevices(devices, filters, activeTab, keyword),
     [activeTab, devices, filters, keyword]
   );
+  const pageSize = Math.max(1, Number.parseInt(pageSizeInput, 10) || 1);
+  const totalPages = Math.max(
+    1,
+    Math.ceil(displayedDevices.length / pageSize)
+  );
+  const normalizedPage = Math.min(currentPage, totalPages);
+  const pagedDevices = displayedDevices.slice(
+    (normalizedPage - 1) * pageSize,
+    normalizedPage * pageSize
+  );
+  const tabCounts = useMemo(
+    () =>
+      DEVICE_TABS.reduce((counts, tab) => {
+        counts[tab.key] =
+          tab.key === "all"
+            ? devices.length
+            : devices.filter((device) => device.status === tab.key).length;
+        return counts;
+      }, {}),
+    [devices]
+  );
   const selectedDevice =
     devices.find((device) => device.id === selectedDeviceId) ?? null;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, filters, keyword]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+      return;
+    }
+
+    setJumpPageInput(String(normalizedPage));
+  }, [currentPage, normalizedPage, totalPages]);
+
+  function commitJumpPage(value) {
+    const parsedPage = Number.parseInt(value, 10);
+    const nextPage = Number.isFinite(parsedPage)
+      ? Math.min(Math.max(parsedPage, 1), totalPages)
+      : normalizedPage;
+
+    setCurrentPage(nextPage);
+    setJumpPageInput(String(nextPage));
+  }
+
+  function commitPageSize(value) {
+    const parsedSize = Number.parseInt(value, 10);
+    const nextSize = Number.isFinite(parsedSize)
+      ? Math.max(1, parsedSize)
+      : DEFAULT_PAGE_SIZE;
+
+    setPageSizeInput(String(nextSize));
+    setCurrentPage(1);
+  }
 
   return (
     <PageShell $hasDrawer={Boolean(selectedDevice)}>
@@ -697,7 +718,10 @@ function DeviceManagement() {
             <FilterSelect
               value={filters.type}
               onChange={(event) =>
-                setFilters((current) => ({ ...current, type: event.target.value }))
+                setFilters((current) => ({
+                  ...current,
+                  type: event.target.value,
+                }))
               }
             >
               <option value="all">全部</option>
@@ -713,7 +737,10 @@ function DeviceManagement() {
             <FilterSelect
               value={filters.status}
               onChange={(event) =>
-                setFilters((current) => ({ ...current, status: event.target.value }))
+                setFilters((current) => ({
+                  ...current,
+                  status: event.target.value,
+                }))
               }
             >
               <option value="all">全部</option>
@@ -772,7 +799,7 @@ function DeviceManagement() {
                   $active={activeTab === tab.key}
                   onClick={() => setActiveTab(tab.key)}
                 >
-                  {tab.label}（{tab.count}）
+                  {tab.label}（{tabCounts[tab.key] ?? 0}）
                 </TabButton>
               ))}
             </Tabs>
@@ -783,39 +810,88 @@ function DeviceManagement() {
           </TabsRow>
 
           <CardGrid>
-            {displayedDevices.map((device) => (
-              <DeviceCard
-                key={device.id}
-                device={device}
-                isSelected={device.id === selectedDeviceId}
-                onSelect={() => setSelectedDeviceId(device.id)}
-              />
-            ))}
+            {isLoading ? (
+              <ListPlaceholder>正在加载设备信息...</ListPlaceholder>
+            ) : hasError ? (
+              <ListPlaceholder>设备信息加载失败</ListPlaceholder>
+            ) : pagedDevices.length === 0 ? (
+              <ListPlaceholder>暂无匹配设备</ListPlaceholder>
+            ) : (
+              pagedDevices.map((device) => (
+                <DeviceCard
+                  key={device.id}
+                  device={device}
+                  isSelected={device.id === selectedDeviceId}
+                  onSelect={() => setSelectedDeviceId(device.id)}
+                />
+              ))
+            )}
           </CardGrid>
         </ListPanel>
 
         <PaginationRow>
-          <TotalText>共 1560 条</TotalText>
+          <TotalText>共 {displayedDevices.length} 条</TotalText>
           <PageControls>
-            <PageButton type="button">
+            <PageButton
+              type="button"
+              disabled={normalizedPage === 1}
+              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            >
               <ChevronLeft size={14} />
             </PageButton>
-            {[1, 2, 3, 4, 5].map((page) => (
-              <PageNumber key={page} type="button" $active={page === 1}>
-                {page}
-              </PageNumber>
-            ))}
-            <PageMore>...</PageMore>
-            <PageNumber type="button">78</PageNumber>
-            <PageButton type="button">
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+              (page) => (
+                <PageNumber
+                  key={page}
+                  type="button"
+                  $active={page === normalizedPage}
+                  onClick={() => setCurrentPage(page)}
+                >
+                  {page}
+                </PageNumber>
+              )
+            )}
+            <PageButton
+              type="button"
+              disabled={normalizedPage === totalPages}
+              onClick={() =>
+                setCurrentPage((page) => Math.min(totalPages, page + 1))
+              }
+            >
               <ChevronRight size={14} />
             </PageButton>
-            <PageSizeButton type="button">
-              20 条/页
-              <ChevronDown size={14} />
-            </PageSizeButton>
+            <PageSizeControl>
+              <PageSizeInput
+                value={pageSizeInput}
+                inputMode="numeric"
+                onChange={(event) =>
+                  setPageSizeInput(event.target.value.replace(/\D/g, ""))
+                }
+                onBlur={(event) => commitPageSize(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
+                aria-label="每页条数"
+              />
+              <span>条/页</span>
+            </PageSizeControl>
             <JumpText>跳至</JumpText>
-            <JumpInput value="1" readOnly />
+            <JumpInput
+              value={jumpPageInput}
+              inputMode="numeric"
+              onChange={(event) =>
+                setJumpPageInput(event.target.value.replace(/\D/g, ""))
+              }
+              onBlur={(event) => commitJumpPage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  commitJumpPage(event.currentTarget.value);
+                }
+              }}
+              aria-label="跳转页码"
+            />
             <JumpText>页</JumpText>
           </PageControls>
         </PaginationRow>
@@ -833,21 +909,25 @@ function DeviceManagement() {
 
 const PageShell = styled.div`
   box-sizing: border-box;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-columns: ${(p) =>
     p.$hasDrawer ? "minmax(0, 1fr) 410px" : "minmax(0, 1fr)"};
   gap: 0;
+  overflow: hidden;
   background: hsl(216 26% 97%);
   transition: grid-template-columns 180ms ease;
 `;
 
 const ContentColumn = styled.div`
   min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 12px;
   padding: 20px 22px 10px;
+  overflow: hidden;
 `;
 
 const PageTitle = styled.h1`
@@ -859,17 +939,20 @@ const PageTitle = styled.h1`
 const FilterBar = styled.div`
   min-width: 0;
   display: grid;
-  grid-template-columns: 184px 184px 184px minmax(210px, 1fr) 64px 88px;
-  gap: 12px;
+  grid-template-columns: minmax(132px, 154px) minmax(132px, 154px) minmax(
+      132px,
+      154px
+    ) minmax(150px, 1fr) 46px 76px;
+  gap: 8px;
   align-items: end;
 `;
 
 const FilterGroup = styled.label`
   min-width: 0;
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 `;
 
 const FilterLabel = styled.span`
@@ -915,6 +998,7 @@ const SearchBox = styled.label`
 
 const ResetButton = styled.button`
   height: 34px;
+  width: 46px;
   border: 1px solid hsl(220 13% 86%);
   border-radius: 6px;
   color: hsl(218 10% 38%);
@@ -926,11 +1010,11 @@ const ResetButton = styled.button`
 
 const PrimaryAction = styled.button`
   height: 34px;
+  width: 76px;
   border: 0;
   border-radius: 6px;
   color: white;
   background: hsl(217 93% 52%);
-  box-shadow: 0 8px 16px hsl(217 93% 52% / 0.18);
   font-size: ${FONT_SIZES.peopleSearchInput};
   font-weight: 700;
   cursor: pointer;
@@ -938,6 +1022,8 @@ const PrimaryAction = styled.button`
 
 const ListPanel = styled.section`
   min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid hsl(220 13% 88%);
   border-radius: 8px;
   background: white;
@@ -964,7 +1050,8 @@ const Tabs = styled.div`
 const TabButton = styled.button`
   height: 48px;
   border: 0;
-  border-bottom: 2px solid ${(p) => (p.$active ? "hsl(217 93% 52%)" : "transparent")};
+  border-bottom: 2px solid
+    ${(p) => (p.$active ? "hsl(217 93% 52%)" : "transparent")};
   color: ${(p) => (p.$active ? "hsl(217 93% 52%)" : "hsl(218 10% 36%)")};
   background: transparent;
   font-size: ${FONT_SIZES.peopleTable};
@@ -990,43 +1077,52 @@ const BatchButton = styled.button`
 
 const CardGrid = styled.div`
   min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(284px, 1fr));
+  grid-auto-rows: minmax(188px, auto);
+  align-content: start;
   gap: 12px;
   padding: 12px;
   overflow: auto;
 `;
 
+const ListPlaceholder = styled.div`
+  grid-column: 1 / -1;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: hsl(218 10% 52%);
+  font-size: ${FONT_SIZES.peopleTable};
+`;
+
 const DeviceCardButton = styled.button`
   min-width: 0;
-  min-height: 154px;
-  border: 1px solid ${(p) => (p.$selected ? "hsl(217 93% 52%)" : "hsl(220 13% 89%)")};
+  min-height: 188px;
+  border: 1px solid
+    ${(p) => (p.$selected ? "hsl(217 93% 52%)" : "hsl(220 13% 89%)")};
   border-radius: 8px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  row-gap: 12px;
-  padding: 14px;
+  row-gap: 10px;
+  padding: 12px;
   text-align: left;
   background: white;
-  box-shadow: ${(p) =>
-    p.$selected
-      ? "0 0 0 1px hsl(217 93% 52% / 0.65), 0 10px 26px hsl(217 93% 52% / 0.1)"
-      : "0 8px 20px hsl(220 20% 10% / 0.04)"};
   cursor: pointer;
 `;
 
 const DeviceCardTop = styled.div`
   min-width: 0;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) 20px;
-  gap: 12px;
+  grid-template-columns: 52px minmax(0, 1fr) 20px;
+  gap: 10px;
   align-items: start;
 `;
 
 const DeviceIcon = styled.div`
-  width: 58px;
-  height: 58px;
-  border-radius: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
   display: grid;
   place-items: center;
   color: ${(p) =>
@@ -1055,6 +1151,7 @@ const DeviceName = styled.div`
   color: ${COLORS.gray10};
   font-size: ${FONT_SIZES.peopleTable};
   font-weight: 700;
+  line-height: 1.25;
 `;
 
 const DeviceMeta = styled.div`
@@ -1062,9 +1159,10 @@ const DeviceMeta = styled.div`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: 7px;
+  margin-top: 5px;
   color: hsl(218 10% 42%);
   font-size: ${FONT_SIZES.peopleDetailLabel};
+  line-height: 1.25;
 `;
 
 const MoreButton = styled.button`
@@ -1080,16 +1178,23 @@ const MoreButton = styled.button`
 
 const DeviceFacts = styled.div`
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  align-content: start;
 `;
 
 const DeviceFact = styled.div`
   min-width: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: 42px auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
+  column-gap: 6px;
   color: hsl(218 10% 42%);
   font-size: ${FONT_SIZES.peopleDetailLabel};
+  line-height: 1.25;
+
+  > span:first-child {
+    white-space: nowrap;
+  }
 `;
 
 const StatusDot = styled.span`
@@ -1213,6 +1318,11 @@ const PageButton = styled.button`
   place-items: center;
   color: hsl(218 10% 42%);
   background: white;
+
+  &:disabled {
+    color: hsl(218 10% 72%);
+    cursor: default;
+  }
 `;
 
 const PageNumber = styled(PageButton)`
@@ -1223,22 +1333,28 @@ const PageNumber = styled(PageButton)`
   font-size: ${FONT_SIZES.peopleTable};
 `;
 
-const PageMore = styled.span`
-  color: hsl(218 10% 44%);
-  font-size: ${FONT_SIZES.peopleTable};
-`;
-
-const PageSizeButton = styled.button`
+const PageSizeControl = styled.label`
   height: 30px;
   border: 1px solid hsl(220 13% 86%);
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 5px;
+  padding: 0 8px;
   color: hsl(218 10% 38%);
   background: white;
   font-size: ${FONT_SIZES.peopleTable};
+`;
+
+const PageSizeInput = styled.input`
+  width: 28px;
+  border: 0;
+  color: hsl(218 10% 34%);
+  background: transparent;
+  font-family: var(--font-data);
+  font-size: ${FONT_SIZES.peopleTable};
+  text-align: center;
+  outline: none;
 `;
 
 const JumpText = styled.span`
@@ -1264,7 +1380,6 @@ const Drawer = styled.aside`
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   border-left: 1px solid hsl(220 13% 88%);
   background: white;
-  box-shadow: -18px 0 46px hsl(220 20% 10% / 0.1);
 `;
 
 const DrawerHeader = styled.div`
@@ -1284,6 +1399,31 @@ const DrawerTitle = styled.h2`
   color: ${COLORS.gray10};
   font-size: ${FONT_SIZES.peopleSelectedName};
   font-weight: 700;
+`;
+
+const DrawerTitleText = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const CopyButton = styled.button`
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  color: hsl(218 10% 50%);
+  background: transparent;
+  cursor: pointer;
+
+  &:hover {
+    color: hsl(217 93% 52%);
+    background: hsl(217 93% 52% / 0.08);
+  }
 `;
 
 const StatusBadge = styled.span`
@@ -1316,11 +1456,13 @@ const DrawerTabs = styled.div`
 const DrawerTab = styled.button`
   height: 42px;
   border: 0;
-  border-bottom: 2px solid ${(p) => (p.$active ? "hsl(217 93% 52%)" : "transparent")};
+  border-bottom: 2px solid
+    ${(p) => (p.$active ? "hsl(217 93% 52%)" : "transparent")};
   color: ${(p) => (p.$active ? "hsl(217 93% 52%)" : "hsl(218 10% 34%)")};
   background: transparent;
   font-size: ${FONT_SIZES.peopleTable};
   font-weight: 700;
+  cursor: pointer;
 `;
 
 const DrawerBody = styled.div`
@@ -1332,7 +1474,7 @@ const DrawerBody = styled.div`
 const DeviceOverview = styled.div`
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
-  gap: 18px;
+  gap: 14px;
 `;
 
 const LargeDeviceIcon = styled(DeviceIcon)`
@@ -1343,13 +1485,16 @@ const LargeDeviceIcon = styled(DeviceIcon)`
 const DeviceInfoGrid = styled.div`
   min-width: 0;
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr) 88px minmax(0, 1fr);
-  gap: 12px 14px;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 9px 10px;
+  align-items: center;
 `;
 
 const InfoLabel = styled.div`
+  justify-self: start;
   color: hsl(218 10% 48%);
   font-size: ${FONT_SIZES.peopleDetailLabel};
+  white-space: nowrap;
 `;
 
 const InfoValue = styled.div`
@@ -1357,9 +1502,11 @@ const InfoValue = styled.div`
   display: flex;
   align-items: center;
   gap: 6px;
+  justify-self: start;
   color: hsl(218 15% 24%);
   font-size: ${FONT_SIZES.peopleDetailValue};
   font-weight: 600;
+  overflow-wrap: anywhere;
 `;
 
 const HealthBlock = styled.div`
@@ -1368,6 +1515,14 @@ const HealthBlock = styled.div`
   place-items: center;
   gap: 8px;
   margin-top: 10px;
+`;
+
+const TabFailureState = styled.div`
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  color: hsl(218 10% 52%);
+  font-size: ${FONT_SIZES.peopleTable};
 `;
 
 const SmallLabel = styled.div`
@@ -1498,6 +1653,14 @@ const AlarmList = styled.div`
   gap: 10px;
 `;
 
+const DrawerEmpty = styled.div`
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  color: hsl(218 10% 52%);
+  font-size: ${FONT_SIZES.peopleDetailLabel};
+`;
+
 const AlarmItem = styled.div`
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) 130px 52px;
@@ -1563,6 +1726,12 @@ const MaintenanceTable = styled.table`
     background: hsl(216 26% 98%);
     font-weight: 700;
   }
+`;
+
+const EmptyTableCell = styled.td`
+  height: 44px !important;
+  text-align: center !important;
+  color: hsl(218 10% 52%) !important;
 `;
 
 const DrawerFooter = styled.div`

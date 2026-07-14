@@ -108,7 +108,8 @@ petroshield/
 │     ├─ health.py
 │     ├─ dashboard.py
 │     ├─ people.py
-│     └─ devices.py
+│     ├─ devices.py
+│     └─ statistics.py
 ├─ database/supabase/
 │  ├─ migrations/
 │  │  ├─ 20260710000100_init_core_tables.sql
@@ -138,10 +139,10 @@ petroshield/
 | `/` | Dashboard，已接多项后端数据 |
 | `/people-management` | 人员管理，已接人员定位/轨迹接口，地图为百度卫星图 |
 | `/alarm-center` | 告警中心页面，当前仍偏占位/原型 |
-| `/device-management` | 设备管理，已按原型实现卡片列表、筛选、分页和右侧设备详情抽屉；后端提供设备概览接口，前端保留原型演示数据兜底 |
+| `/device-management` | 设备管理，已按原型实现卡片列表、筛选、动态分页和右侧设备详情抽屉；数据来自后端设备概览接口，加载中/失败/空列表均有占位状态 |
 | `/risk-control` | 风险管控，占位/原型 |
 | `/video-ai` | 视频 AI，占位/原型 |
-| `/statistics-analysis` 及其子路由 | 统计分析占位/原型 |
+| `/statistics-analysis` 及其子路由 | 统计分析已按原型实现 KPI、趋势、占比、热力和 TOP 榜图表，复用 Dashboard 图表字号风格，数据来自统计概览接口 |
 | `/system-management` 及其子路由 | 系统管理占位/原型 |
 
 注意：`App.jsx` 里部分子路由标题仍有历史乱码文本，不代表页面功能已完整实现。
@@ -255,7 +256,15 @@ GET /api/v1/people/locations
 GET /api/v1/devices/overview
 ```
 
-返回每台设备的基础信息、`device_realtime` 最新状态、维护信息、合规年检信息、告警数量和最近告警。前端设备管理页默认使用原型一致的演示数据，接口可用且有数据时会归一化为页面卡片/详情抽屉消费结构。
+返回每台设备的基础信息、`device_realtime` 最新状态、维护信息、合规年检信息、告警数量和最近告警。前端设备管理页不保留本地假数据，接口加载中显示“正在加载设备信息...”占位，接口失败或空结果分别显示对应空状态。
+
+统计分析：
+
+```http
+GET /api/v1/statistics/overview
+```
+
+聚合返回统计页 KPI、近 7 天告警趋势、人员分布、设备在线率趋势、告警类型占比、风险等级占比、区域热力、处理时长分布、风险设备/区域/人员 TOP5 和设备类型分布。
 
 后端 CORS 当前允许：
 
