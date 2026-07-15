@@ -2,10 +2,8 @@
 import { createPortal } from "react-dom";
 import styled from "styled-components";
 import PeopleLocationMap from "../components/PeopleLocationMap/PeopleLocationMap";
+import { API_BASE_URL } from "../config/api";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
 function formatTime(value) {
   if (!value) {

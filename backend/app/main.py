@@ -26,6 +26,8 @@ def create_app() -> FastAPI:
             "http://localhost:5175",
             "http://127.0.0.1:5175",
             "https://petroshield.netlify.app",
+            "https://odayaka.me",
+            "https://www.odayaka.me",
         ],
         allow_credentials=True,
         allow_methods=["*"],

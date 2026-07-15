@@ -3,10 +3,8 @@ import { Link } from "react-router";
 import styled from "styled-components";
 import BaiduSatelliteMap from "../components/BaiduSatelliteMap/BaiduSatelliteMap";
 import Icon from "../components/Icon/Icon";
+import { API_BASE_URL } from "../config/api";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
 
 const ALARM_PAGE_SIZE = 5;
 
