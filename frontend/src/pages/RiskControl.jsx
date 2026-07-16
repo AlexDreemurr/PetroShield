@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Timer,
+  Trash2,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -292,6 +293,10 @@ function RiskControl() {
   const [draft, setDraft] = useState(INITIAL_AREAS[0]);
   const [savedMessage, setSavedMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [draftPointCount, setDraftPointCount] = useState(0);
+  const [confirmDrawToken, setConfirmDrawToken] = useState(0);
   const [managerOptions, setManagerOptions] = useState([
     { name: "李四", department: "生产部" },
     { name: "王五", department: "运维部" },
@@ -376,6 +381,7 @@ function RiskControl() {
   const handleAreaSelect = useCallback((id) => {
     setSelectedAreaId(id);
     setDrawMode(null);
+    setDraftPointCount(0);
   }, []);
 
   const handleDrawComplete = useCallback((geometry) => {
@@ -407,6 +413,7 @@ function RiskControl() {
     setAreas((current) => [...current, nextArea]);
     setSelectedAreaId(id);
     setDrawMode(null);
+    setDraftPointCount(0);
   }, [areas.length]);
 
   const updateDraft = (key, value) => {
@@ -451,9 +458,51 @@ function RiskControl() {
     }
   };
 
+  const removeAreaFromView = (areaId) => {
+    const removedIndex = areas.findIndex((area) => area.id === areaId);
+    const nextAreas = areas.filter((area) => area.id !== areaId);
+    const nextSelection = nextAreas[Math.min(Math.max(removedIndex, 0), nextAreas.length - 1)];
+    setAreas(nextAreas);
+    setSelectedAreaId(nextSelection?.id ?? null);
+    setDraft(nextSelection ?? null);
+  };
+
+  const deleteDraft = async () => {
+    if (!draft || isDeleting) return;
+
+    if (draft.isNew) {
+      removeAreaFromView(draft.id);
+      setDeleteDialogOpen(false);
+      setSavedMessage("未保存区域已移除");
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/risk-control/areas/${encodeURIComponent(draft.id)}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) throw new Error("Failed to delete risk area");
+
+      removeAreaFromView(draft.id);
+      setDeleteDialogOpen(false);
+      setSavedMessage("区域已删除");
+    } catch {
+      setSavedMessage("删除失败，请检查后端服务");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const startDrawing = (mode) => {
+    setDraftPointCount(0);
     setDrawMode(mode);
   };
+
+  const handleDraftPointCountChange = useCallback((count) => {
+    setDraftPointCount(count);
+  }, []);
 
   return (
     <Wrapper>
@@ -540,6 +589,15 @@ function RiskControl() {
               <ToolButton type="button" title="选择区域" $active={!drawMode} onClick={() => setDrawMode(null)}><MousePointer2 size={15} /></ToolButton>
               <ToolButton type="button" title="绘制多边形" $active={drawMode === "polygon"} onClick={() => startDrawing("polygon")}><Pentagon size={15} /></ToolButton>
               <ToolButton type="button" title="绘制圆形" $active={drawMode === "circle"} onClick={() => startDrawing("circle")}><Circle size={15} /></ToolButton>
+              {drawMode === "polygon" ? (
+                <ConfirmDrawButton
+                  type="button"
+                  disabled={draftPointCount < 3}
+                  onClick={() => setConfirmDrawToken((current) => current + 1)}
+                >
+                  <Check size={14} />确认创建
+                </ConfirmDrawButton>
+              ) : null}
             </DrawTools>
           </MapHeader>
           <MapBody>
@@ -549,6 +607,8 @@ function RiskControl() {
               onAreaSelect={handleAreaSelect}
               drawMode={drawMode}
               onDrawComplete={handleDrawComplete}
+              confirmDrawToken={confirmDrawToken}
+              onDraftPointCountChange={handleDraftPointCountChange}
             />
             <MapLegend>
               {Object.entries(AREA_TYPES).map(([key, item]) => (
@@ -647,12 +707,28 @@ function RiskControl() {
             </ConfigBody>
           ) : null}
           <ConfigFooter>
-            <ResetButton type="button" onClick={() => setDraft(selectedArea)}><RotateCcw size={14} />重置</ResetButton>
-            <SaveButton type="button" onClick={saveDraft} disabled={isSaving}><Save size={14} />{isSaving ? "保存中..." : "保存配置"}</SaveButton>
+            <DeleteButton type="button" onClick={() => setDeleteDialogOpen(true)} disabled={!draft || isDeleting}><Trash2 size={14} />删除区域</DeleteButton>
+            <ResetButton type="button" onClick={() => setDraft(selectedArea)} disabled={!draft}><RotateCcw size={14} />重置</ResetButton>
+            <SaveButton type="button" onClick={saveDraft} disabled={!draft || isSaving}><Save size={14} />{isSaving ? "保存中..." : "保存配置"}</SaveButton>
           </ConfigFooter>
           {savedMessage ? <SavedToast><Check size={14} />{savedMessage}</SavedToast> : null}
         </ConfigPanel>
       </Workspace>
+      {deleteDialogOpen && draft ? (
+        <DialogBackdrop role="presentation" onMouseDown={() => !isDeleting && setDeleteDialogOpen(false)}>
+          <DeleteDialog role="dialog" aria-modal="true" aria-labelledby="delete-area-title" onMouseDown={(event) => event.stopPropagation()}>
+            <DialogIcon><Trash2 size={20} /></DialogIcon>
+            <DialogCopy>
+              <h2 id="delete-area-title">删除“{draft.name}”</h2>
+              <p>删除后，当前人员和设备将解除该区域关联；历史告警记录仍会保留。</p>
+            </DialogCopy>
+            <DialogActions>
+              <DialogCancel type="button" onClick={() => setDeleteDialogOpen(false)} disabled={isDeleting}>取消</DialogCancel>
+              <DialogConfirm type="button" onClick={deleteDraft} disabled={isDeleting}>{isDeleting ? "删除中..." : "确认删除"}</DialogConfirm>
+            </DialogActions>
+          </DeleteDialog>
+        </DialogBackdrop>
+      ) : null}
     </Wrapper>
   );
 }
@@ -806,6 +882,11 @@ const ToolButton = styled.button`
   width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid ${(p) => p.$active ? "hsl(217 91% 64%)" : "hsl(220 13% 85%)"};
   border-radius: 5px; color: ${(p) => p.$active ? COLORS.blue : "hsl(218 12% 38%)"}; background: ${(p) => p.$active ? "hsl(214 100% 96%)" : "white"}; cursor: pointer;
 `;
+const ConfirmDrawButton = styled.button`
+  height: 30px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid ${COLORS.blue}; border-radius: 5px;
+  padding: 0 10px; color: white; background: ${COLORS.blue}; font-size: 0.6875rem; cursor: pointer;
+  &:disabled { border-color: hsl(220 10% 78%); color: hsl(218 10% 52%); background: hsl(220 13% 93%); cursor: not-allowed; }
+`;
 const MapBody = styled.div`position: relative; min-height: 0; overflow: hidden;`;
 const MapLegend = styled.div`
   position: absolute; left: 12px; top: 12px; z-index: 2; display: flex; gap: 10px; border: 1px solid hsl(220 13% 86%); border-radius: 5px;
@@ -862,6 +943,14 @@ const ConfigFooter = styled.div`display: flex; align-items: center; justify-cont
 const FooterButton = styled.button`height: 30px; display: inline-flex; align-items: center; gap: 5px; border-radius: 5px; padding: 0 11px; font-size: 0.6875rem; cursor: pointer;`;
 const ResetButton = styled(FooterButton)`border: 1px solid hsl(220 13% 84%); color: hsl(218 12% 32%); background: white;`;
 const SaveButton = styled(FooterButton)`border: 1px solid ${COLORS.blue}; color: white; background: ${COLORS.blue};`;
+const DeleteButton = styled(FooterButton)`margin-right: auto; border: 1px solid hsl(0 72% 88%); color: #dc2626; background: #fff7f7;`;
 const SavedToast = styled.div`position: absolute; right: 12px; bottom: 58px; display: flex; align-items: center; gap: 5px; border-radius: 5px; padding: 7px 10px; color: #047857; background: #ecfdf5; box-shadow: 0 3px 12px hsl(218 30% 20% / 0.14); font-size: 0.6875rem;`;
+const DialogBackdrop = styled.div`position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: hsl(218 30% 12% / 0.42);`;
+const DeleteDialog = styled.div`width: 390px; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; border-radius: 8px; padding: 20px; background: white; box-shadow: 0 24px 70px hsl(218 35% 10% / 0.3);`;
+const DialogIcon = styled.div`width: 42px; height: 42px; display: grid; place-items: center; border-radius: 7px; color: #dc2626; background: #fef2f2;`;
+const DialogCopy = styled.div`min-width: 0; h2 { color: hsl(218 20% 18%); font-size: 0.9375rem; } p { margin-top: 8px; color: hsl(218 10% 45%); font-size: 0.75rem; line-height: 1.6; }`;
+const DialogActions = styled.div`grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;`;
+const DialogCancel = styled(FooterButton)`border: 1px solid hsl(220 13% 84%); color: hsl(218 12% 32%); background: white;`;
+const DialogConfirm = styled(FooterButton)`border: 1px solid #dc2626; color: white; background: #dc2626;`;
 
 export default RiskControl;

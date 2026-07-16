@@ -54,6 +54,8 @@ function RiskControlMap({
   onAreaSelect,
   drawMode,
   onDrawComplete,
+  confirmDrawToken,
+  onDraftPointCountChange,
 }) {
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
@@ -181,6 +183,7 @@ function RiskControlMap({
 
     draftPointsRef.current = [];
     circleCenterRef.current = null;
+    onDraftPointCountChange(0);
     map.disableDoubleClickZoom();
 
     const clearDraft = () => {
@@ -228,6 +231,7 @@ function RiskControlMap({
 
       if (drawMode === "polygon") {
         draftPointsRef.current = [...draftPointsRef.current, point];
+        onDraftPointCountChange(draftPointsRef.current.length);
         drawPolygonPreview();
         return;
       }
@@ -255,26 +259,30 @@ function RiskControlMap({
       onDrawComplete({ shape: "circle", center, radius });
     };
 
-    const handleDoubleClick = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (drawMode !== "polygon" || draftPointsRef.current.length < 3) return;
-      const polygon = draftPointsRef.current.map(mapToLocal);
-      clearDraft();
-      onDrawComplete({ shape: "polygon", polygon });
-    };
-
     const mapNode = mapNodeRef.current;
     mapNode.addEventListener("click", handleClick);
-    mapNode.addEventListener("dblclick", handleDoubleClick);
 
     return () => {
       mapNode.removeEventListener("click", handleClick);
-      mapNode.removeEventListener("dblclick", handleDoubleClick);
       map.enableDoubleClickZoom();
       clearDraft();
     };
-  }, [drawMode, onDrawComplete, status]);
+  }, [drawMode, onDraftPointCountChange, onDrawComplete, status]);
+
+  useEffect(() => {
+    if (
+      !confirmDrawToken ||
+      drawMode !== "polygon" ||
+      draftPointsRef.current.length < 3
+    ) {
+      return;
+    }
+
+    onDrawComplete({
+      shape: "polygon",
+      polygon: draftPointsRef.current.map(mapToLocal),
+    });
+  }, [confirmDrawToken, drawMode, onDrawComplete]);
 
   useEffect(() => {
     const BMap = bmapRef.current;
@@ -296,7 +304,7 @@ function RiskControlMap({
       {drawMode ? (
         <DrawHint>
           {drawMode === "polygon"
-            ? "单击添加边界点，双击完成绘制"
+            ? "单击添加边界点，完成后点击确认创建"
             : "依次单击圆心与边界点完成绘制"}
         </DrawHint>
       ) : null}

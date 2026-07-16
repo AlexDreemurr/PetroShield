@@ -1,6 +1,7 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
+import { API_BASE_URL } from "../../config/api";
 import { FONT_SIZES } from "../../constants/STYLES";
 
 const MAP_CENTER = {
@@ -28,6 +29,30 @@ const TRACK_COLORS = {
   turn: "#2563eb",
   start: "#64748b",
 };
+
+const AREA_COLORS = {
+  danger: { stroke: "#ef4444", fill: "#f87171" },
+  restricted: { stroke: "#f59e0b", fill: "#fbbf24" },
+  prohibited: { stroke: "#991b1b", fill: "#dc2626" },
+  normal: { stroke: "#16a34a", fill: "#4ade80" },
+};
+
+function localToMap(point) {
+  return {
+    lng: MAP_CENTER.lng + (Number(point.x) - LOCAL_ORIGIN.x) * LOCAL_COORDINATE_SCALE.lng,
+    lat: MAP_CENTER.lat - (Number(point.y) - LOCAL_ORIGIN.y) * LOCAL_COORDINATE_SCALE.lat,
+  };
+}
+
+function getAreaLabelCoordinate(area) {
+  if (area.center) return localToMap(area.center);
+  const points = Array.isArray(area.polygon) ? area.polygon : [];
+  if (points.length === 0) return MAP_CENTER;
+  return localToMap({
+    x: points.reduce((sum, point) => sum + Number(point.x), 0) / points.length,
+    y: points.reduce((sum, point) => sum + Number(point.y), 0) / points.length,
+  });
+}
 
 const zoneAnchors = [
   {
@@ -391,6 +416,26 @@ function PeopleLocationMap({
   const [status, setStatus] = useState("loading");
   const [showAllPeople, setShowAllPeople] = useState(true);
   const [showPersonNames, setShowPersonNames] = useState(true);
+  const [showAllAreas, setShowAllAreas] = useState(true);
+  const [riskAreas, setRiskAreas] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetch(`${API_BASE_URL}/risk-control/overview`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Failed to load risk areas");
+        return response.json();
+      })
+      .then((payload) => {
+        if (isMounted) setRiskAreas(payload.items ?? []);
+      })
+      .catch(() => {
+        if (isMounted) setRiskAreas([]);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -447,6 +492,58 @@ function PeopleLocationMap({
     }
 
     map.clearOverlays();
+
+    if (showAllAreas) {
+      riskAreas.filter((area) => area.enabled !== false).forEach((area) => {
+        const colors = AREA_COLORS[area.type] ?? AREA_COLORS.normal;
+        let overlay;
+        if (area.shape === "circle" && area.center && area.radius) {
+          const coordinate = localToMap(area.center);
+          overlay = new BMap.Circle(
+            new BMap.Point(coordinate.lng, coordinate.lat),
+            Number(area.radius),
+            {
+              strokeColor: colors.stroke,
+              strokeWeight: 2,
+              strokeOpacity: 0.92,
+              fillColor: colors.fill,
+              fillOpacity: 0.2,
+            }
+          );
+        } else {
+          const points = (area.polygon ?? []).map((point) => {
+            const coordinate = localToMap(point);
+            return new BMap.Point(coordinate.lng, coordinate.lat);
+          });
+          if (points.length < 3) return;
+          overlay = new BMap.Polygon(points, {
+            strokeColor: colors.stroke,
+            strokeWeight: 2,
+            strokeOpacity: 0.92,
+            fillColor: colors.fill,
+            fillOpacity: 0.2,
+          });
+        }
+        map.addOverlay(overlay);
+
+        const labelCoordinate = getAreaLabelCoordinate(area);
+        const label = new BMap.Label(area.name, {
+          position: new BMap.Point(labelCoordinate.lng, labelCoordinate.lat),
+          offset: new BMap.Size(-24, -9),
+        });
+        label.setStyle({
+          padding: "2px 6px",
+          border: `1px solid ${colors.stroke}`,
+          borderRadius: "4px",
+          color: colors.stroke,
+          background: "rgba(255, 255, 255, 0.88)",
+          fontSize: "10px",
+          fontWeight: "700",
+          whiteSpace: "nowrap",
+        });
+        map.addOverlay(label);
+      });
+    }
 
     const selectedPerson = people.find(
       (person) => person.id === selectedPersonId
@@ -569,7 +666,10 @@ function PeopleLocationMap({
     onPersonSelect,
     people,
     selectedPersonId,
+    riskAreas,
+    status,
     showAllPeople,
+    showAllAreas,
     showPersonNames,
     showTrack,
   ]);
@@ -593,6 +693,14 @@ function PeopleLocationMap({
             onChange={(event) => setShowPersonNames(event.target.checked)}
           />
           <span>显示姓名</span>
+        </MapToggle>
+        <MapToggle>
+          <input
+            type="checkbox"
+            checked={showAllAreas}
+            onChange={(event) => setShowAllAreas(event.target.checked)}
+          />
+          <span>显示所有区域</span>
         </MapToggle>
       </MapOptions>
       {status === "loading" ? <MapStatus>地图加载中...</MapStatus> : null}

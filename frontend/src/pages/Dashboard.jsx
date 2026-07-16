@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import styled from "styled-components";
+import { Maximize2, X } from "lucide-react";
 import BaiduSatelliteMap from "../components/BaiduSatelliteMap/BaiduSatelliteMap";
 import Icon from "../components/Icon/Icon";
 import MiniAreaSparkline from "../components/MiniAreaSparkline/MiniAreaSparkline";
@@ -380,9 +381,9 @@ function DistributionCard({
   );
 }
 
-function DashboardSection({ title, action, children, className }) {
+function DashboardSection({ title, action, children, className, ...delegated }) {
   return (
-    <Panel className={className}>
+    <Panel className={className} {...delegated}>
       <PanelHeader>
         <PanelTitle>{title}</PanelTitle>
         {action ? <PanelAction>{action}</PanelAction> : null}
@@ -392,24 +393,73 @@ function DashboardSection({ title, action, children, className }) {
   );
 }
 
+function HealthHeatmapGrid({ zones, buckets, itemByCell, granularity, expanded }) {
+  return (
+    <Heatmap $count={buckets.length} $expanded={expanded}>
+      {zones.map((zone) => (
+        <React.Fragment key={zone}>
+          <HeatmapLabel title={zone} $expanded={expanded}>{zone}</HeatmapLabel>
+          {buckets.map((bucket) => {
+            const item = itemByCell.get(`${zone}|${bucket}`);
+            const observedPeople = Number(item?.observed_people ?? 0);
+            const riskRatio = Number(item?.risk_ratio ?? 0);
+
+            return (
+              <HeatmapCell
+                key={`${zone}-${bucket}`}
+                $strength={riskRatio}
+                $isEmpty={observedPeople === 0}
+                $expanded={expanded}
+                tabIndex="0"
+                aria-label={`${zone} ${formatTrendBucket(
+                  bucket,
+                  granularity
+                )}，观测${observedPeople}人，中风险${
+                  item?.medium_risk_people ?? 0
+                }人，高风险${item?.high_risk_people ?? 0}人`}
+              >
+                <HeatmapTooltip>
+                  <strong>{zone}</strong>
+                  <span>{formatTrendBucket(bucket, granularity)}</span>
+                  <span>观测人员：{observedPeople}人</span>
+                  <span>中风险：{item?.medium_risk_people ?? 0}人</span>
+                  <span>高风险：{item?.high_risk_people ?? 0}人</span>
+                </HeatmapTooltip>
+              </HeatmapCell>
+            );
+          })}
+        </React.Fragment>
+      ))}
+    </Heatmap>
+  );
+}
+
 function ChartPanelBody({ children }) {
   return <ChartPanelContent>{children}</ChartPanelContent>;
 }
 
 function FactoryMapCard() {
+  const [mapLayers, setMapLayers] = useState({
+    people: true,
+    devices: true,
+    areas: true,
+  });
+  const toggleLayer = (key) => {
+    setMapLayers((current) => ({ ...current, [key]: !current[key] }));
+  };
+
   return (
     <DashboardSection
       title="厂区人员与设备分布"
       action={
         <MapToggles>
-          <TogglePill>人员</TogglePill>
-          <TogglePill>设备</TogglePill>
-          <TogglePill>告警</TogglePill>
-          <TogglePill>风险区域</TogglePill>
+          <TogglePill type="button" $active={mapLayers.people} aria-pressed={mapLayers.people} onClick={() => toggleLayer("people")}>人员</TogglePill>
+          <TogglePill type="button" $active={mapLayers.devices} aria-pressed={mapLayers.devices} onClick={() => toggleLayer("devices")}>设备</TogglePill>
+          <TogglePill type="button" $active={mapLayers.areas} aria-pressed={mapLayers.areas} onClick={() => toggleLayer("areas")}>风险区域</TogglePill>
         </MapToggles>
       }
     >
-      <BaiduSatelliteMap />
+      <BaiduSatelliteMap layers={mapLayers} />
     </DashboardSection>
   );
 }
@@ -929,7 +979,9 @@ function HealthHeatmapCard({
   onRangeDaysChange,
   onGranularityChange,
 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const zones = data?.zones ?? [];
+  const cardZones = zones.slice(0, 4);
   const buckets = data?.buckets ?? [];
   const itemByCell = new Map(
     (data?.items ?? []).map((item) => [
@@ -949,86 +1001,124 @@ function HealthHeatmapCard({
     ? "暂无人员健康观测数据"
     : null;
 
-  return (
-    <DashboardSection
-      title="人员健康分析"
-      action={
-        <SmallFilters>
-          <TrendFilterSelect
-            aria-label="健康分析时间范围"
-            value={rangeDays}
-            onChange={(event) => onRangeDaysChange(Number(event.target.value))}
-          >
-            <option value="7">近7天</option>
-            <option value="30">近30天</option>
-          </TrendFilterSelect>
-          <TrendFilterSelect
-            aria-label="健康分析聚合粒度"
-            value={granularity}
-            onChange={(event) => onGranularityChange(event.target.value)}
-          >
-            <option value="day">按日</option>
-            <option value="week">按周</option>
-          </TrendFilterSelect>
-        </SmallFilters>
-      }
-    >
-      <ChartPanelBody>
-        <HealthLegend aria-label="健康风险比例图例">
-          <span>低风险</span>
-          <HealthLegendGradient />
-          <span>高风险</span>
-        </HealthLegend>
-        {statusMessage ? (
-          <ChartStatusMessage>{statusMessage}</ChartStatusMessage>
-        ) : (
-          <Heatmap $count={buckets.length}>
-            {zones.map((zone) => (
-              <React.Fragment key={zone}>
-                <HeatmapLabel title={zone}>{zone}</HeatmapLabel>
-                {buckets.map((bucket) => {
-                  const item = itemByCell.get(`${zone}|${bucket}`);
-                  const observedPeople = Number(item?.observed_people ?? 0);
-                  const riskRatio = Number(item?.risk_ratio ?? 0);
+  useEffect(() => {
+    if (!isExpanded) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setIsExpanded(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isExpanded]);
 
-                  return (
-                    <HeatmapCell
-                      key={`${zone}-${bucket}`}
-                      $strength={riskRatio}
-                      $isEmpty={observedPeople === 0}
-                      tabIndex="0"
-                      aria-label={`${zone} ${formatTrendBucket(
-                        bucket,
-                        granularity
-                      )}，观测${observedPeople}人，中风险${
-                        item?.medium_risk_people ?? 0
-                      }人，高风险${item?.high_risk_people ?? 0}人`}
-                    >
-                      <HeatmapTooltip>
-                        <strong>{zone}</strong>
-                        <span>{formatTrendBucket(bucket, granularity)}</span>
-                        <span>观测人员：{observedPeople}人</span>
-                        <span>中风险：{item?.medium_risk_people ?? 0}人</span>
-                        <span>高风险：{item?.high_risk_people ?? 0}人</span>
-                      </HeatmapTooltip>
-                    </HeatmapCell>
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </Heatmap>
-        )}
-        <HealthChartAxis $count={Math.max(buckets.length, 1)}>
-          {labels.map((label, index) => (
-            <span key={`${label}-${index}`}>
-              {index % labelInterval === 0 || index === labels.length - 1
-                ? label
-                : ""}
-            </span>
-          ))}
-        </HealthChartAxis>
-      </ChartPanelBody>
-    </DashboardSection>
+  const filters = (
+    <SmallFilters onClick={(event) => event.stopPropagation()}>
+      <TrendFilterSelect
+        aria-label="健康分析时间范围"
+        value={rangeDays}
+        onChange={(event) => onRangeDaysChange(Number(event.target.value))}
+      >
+        <option value="7">近7天</option>
+        <option value="30">近30天</option>
+      </TrendFilterSelect>
+      <TrendFilterSelect
+        aria-label="健康分析聚合粒度"
+        value={granularity}
+        onChange={(event) => onGranularityChange(event.target.value)}
+      >
+        <option value="day">按日</option>
+        <option value="week">按周</option>
+      </TrendFilterSelect>
+    </SmallFilters>
+  );
+
+  const renderAxis = (expanded = false) => (
+    <HealthChartAxis
+      $count={Math.max(buckets.length, 1)}
+      $expanded={expanded}
+    >
+      {labels.map((label, index) => (
+        <span key={`${label}-${index}`}>
+          {index % labelInterval === 0 || index === labels.length - 1
+            ? label
+            : ""}
+        </span>
+      ))}
+    </HealthChartAxis>
+  );
+
+  return (
+    <>
+      <DashboardSection
+        title="人员健康分析"
+        action={
+          <HealthActions>
+            {filters}
+            <ExpandButton
+              type="button"
+              title="展开人员健康分析"
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsExpanded(true);
+              }}
+            >
+              <Maximize2 size={14} />
+            </ExpandButton>
+          </HealthActions>
+        }
+        $clickable
+        data-testid="health-heatmap-card"
+        onClick={() => setIsExpanded(true)}
+      >
+        <ChartPanelBody>
+          <HealthLegend aria-label="健康风险比例图例">
+            <span>低风险</span>
+            <HealthLegendGradient />
+            <span>高风险</span>
+          </HealthLegend>
+          {statusMessage ? (
+            <ChartStatusMessage>{statusMessage}</ChartStatusMessage>
+          ) : (
+            <HealthHeatmapGrid
+              zones={cardZones}
+              buckets={buckets}
+              itemByCell={itemByCell}
+              granularity={granularity}
+            />
+          )}
+          {renderAxis()}
+        </ChartPanelBody>
+      </DashboardSection>
+
+      {isExpanded ? (
+        <HealthModalBackdrop onMouseDown={() => setIsExpanded(false)}>
+          <HealthModal onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="人员健康分析全部区域">
+            <HealthModalHeader>
+              <div>
+                <strong>人员健康分析</strong>
+                <span>共 {zones.length} 个区域</span>
+              </div>
+              <HealthModalActions>
+                {filters}
+                <CloseModalButton type="button" title="关闭" onClick={() => setIsExpanded(false)}><X size={17} /></CloseModalButton>
+              </HealthModalActions>
+            </HealthModalHeader>
+            <HealthModalBody>
+              <HealthLegend aria-label="健康风险比例图例">
+                <span>低风险</span><HealthLegendGradient /><span>高风险</span>
+              </HealthLegend>
+              {statusMessage ? (
+                <ChartStatusMessage>{statusMessage}</ChartStatusMessage>
+              ) : (
+                <ExpandedHeatmapScroller>
+                  <HealthHeatmapGrid zones={zones} buckets={buckets} itemByCell={itemByCell} granularity={granularity} expanded />
+                </ExpandedHeatmapScroller>
+              )}
+              {renderAxis(true)}
+            </HealthModalBody>
+          </HealthModal>
+        </HealthModalBackdrop>
+      ) : null}
+    </>
   );
 }
 
@@ -1730,6 +1820,18 @@ const Panel = styled.article`
   background: hsl(0 0% 100%);
   padding: 14px 16px;
   overflow: hidden;
+  cursor: ${(p) => (p.$clickable ? "pointer" : "default")};
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+
+  ${(p) =>
+    p.$clickable
+      ? `
+        &:hover {
+          border-color: hsl(217 72% 72%);
+          box-shadow: 0 3px 12px hsl(218 30% 20% / 0.08);
+        }
+      `
+      : ""}
 `;
 
 const PanelHeader = styled.div`
@@ -1787,7 +1889,7 @@ const MapToggles = styled.div`
   color: hsl(218 10% 45%);
 `;
 
-const TogglePill = styled.span`
+const TogglePill = styled.button`
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -1795,9 +1897,14 @@ const TogglePill = styled.span`
   white-space: nowrap;
   position: relative;
   padding-left: 14px;
+  border: 0;
+  color: ${(p) => p.$active ? "hsl(218 16% 28%)" : "hsl(218 9% 58%)"};
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 
   &::before {
-    content: "✓";
+    content: "${(p) => p.$active ? "✓" : ""}";
     position: absolute;
     left: 0;
     top: 50%;
@@ -1806,7 +1913,8 @@ const TogglePill = styled.span`
     border-radius: 3px;
     display: grid;
     place-items: center;
-    background: ${dashboardPalette.blue};
+    border: 1px solid ${(p) => p.$active ? dashboardPalette.blue : "hsl(220 13% 76%)"};
+    background: ${(p) => p.$active ? dashboardPalette.blue : "white"};
     color: white;
     font-size: ${FONT_SIZES.dashboardCheckMark};
     line-height: 1;
@@ -2005,6 +2113,31 @@ const SmallFilters = styled.div`
   justify-content: flex-end;
   min-width: 0;
   overflow: hidden;
+`;
+
+const HealthActions = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+`;
+
+const ExpandButton = styled.button`
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid hsl(220 13% 82%);
+  border-radius: 5px;
+  color: hsl(218 10% 38%);
+  background: white;
+  cursor: pointer;
+
+  &:hover {
+    border-color: hsl(217 91% 64%);
+    color: ${dashboardPalette.blue};
+  }
 `;
 
 const TrendFilterSelect = styled.select`
@@ -2244,8 +2377,8 @@ const Heatmap = styled.div`
   min-height: 0;
   align-self: center;
   display: grid;
-  grid-template-columns: 88px repeat(${(p) => p.$count}, minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: ${(p) => (p.$expanded ? "132px" : "88px")} repeat(${(p) => p.$count}, minmax(0, 1fr));
+  gap: ${(p) => (p.$expanded ? "6px" : "4px")};
 `;
 
 const HeatmapLabel = styled.div`
@@ -2255,12 +2388,12 @@ const HeatmapLabel = styled.div`
   white-space: nowrap;
   color: hsl(218 10% 42%);
   font-size: ${FONT_SIZES.dashboardHeatmapLabel};
-  line-height: 20px;
+  line-height: ${(p) => (p.$expanded ? "26px" : "20px")};
 `;
 
 const HeatmapCell = styled.div`
   position: relative;
-  height: 20px;
+  height: ${(p) => (p.$expanded ? "26px" : "20px")};
   border-radius: 3px;
   background: ${(p) =>
     p.$isEmpty
@@ -2335,12 +2468,105 @@ const HeatmapTooltip = styled.div`
 const HealthChartAxis = styled(ChartAxis)`
   box-sizing: border-box;
   grid-template-columns: repeat(${(p) => p.$count}, minmax(0, 1fr));
-  padding-left: 92px;
+  padding-left: ${(p) => (p.$expanded ? "138px" : "92px")};
   gap: 0;
 
   span {
     min-width: 0;
     white-space: nowrap;
+  }
+`;
+
+const HealthModalBackdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 44px;
+  background: hsl(220 24% 10% / 0.46);
+  cursor: default;
+`;
+
+const HealthModal = styled.section`
+  width: min(1180px, calc(100vw - 120px));
+  height: min(720px, calc(100vh - 110px));
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid hsl(220 13% 84%);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 22px 56px hsl(220 32% 10% / 0.28);
+`;
+
+const HealthModalHeader = styled.header`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid hsl(220 13% 88%);
+  padding: 0 18px;
+
+  > div:first-child {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  strong {
+    color: hsl(218 20% 18%);
+    font-size: 0.9375rem;
+  }
+
+  span {
+    color: hsl(218 10% 48%);
+    font-size: 0.6875rem;
+  }
+`;
+
+const HealthModalActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const CloseModalButton = styled.button`
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid hsl(220 13% 84%);
+  border-radius: 5px;
+  color: hsl(218 12% 34%);
+  background: white;
+  cursor: pointer;
+
+  &:hover {
+    color: hsl(0 72% 48%);
+    border-color: hsl(0 72% 78%);
+  }
+`;
+
+const HealthModalBody = styled.div`
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 24px minmax(0, 1fr) 24px;
+  gap: 10px;
+  padding: 14px 18px 16px;
+`;
+
+const ExpandedHeatmapScroller = styled.div`
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 8px 4px 0;
+
+  ${Heatmap} {
+    width: 100%;
+    align-self: start;
   }
 `;
 
