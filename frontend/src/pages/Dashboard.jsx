@@ -465,7 +465,7 @@ function FactoryMapCard() {
 }
 
 function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
-  const displayItems = items;
+  const displayItems = isLoading || hasError ? [] : items;
   const [currentPage, setCurrentPage] = useState(0);
   const pageCount = Math.max(
     1,
@@ -505,7 +505,7 @@ function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
       title="实时告警"
       action={<PanelActionLink to="/alarm-center">查看更多</PanelActionLink>}
     >
-      <AlarmSummary>今日累计 {total ?? "--"} 条</AlarmSummary>
+      <AlarmSummary>今日累计 {isLoading || hasError ? "--" : total ?? "--"} 条</AlarmSummary>
       <AlarmList>
         {alarmStatusMessage ? (
           <AlarmStatusMessage>{alarmStatusMessage}</AlarmStatusMessage>

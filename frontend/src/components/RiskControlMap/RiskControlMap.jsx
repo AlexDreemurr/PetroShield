@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
+import { getAreaLocalCenter } from "../BaiduSatelliteMap/mapGeometry";
+import MapFullscreenButton from "../BaiduSatelliteMap/MapFullscreenButton";
 
 const MAP_CENTER = { lng: 121.671271, lat: 29.978283 };
 const LOCAL_ORIGIN = { x: 300, y: 220 };
 const LOCAL_SCALE = { lng: 0.0000046, lat: 0.0000038 };
 
 const toneColors = {
-  danger: { stroke: "#ef4444", fill: "#ef4444" },
-  restricted: { stroke: "#f59e0b", fill: "#f59e0b" },
-  prohibited: { stroke: "#dc2626", fill: "#991b1b" },
-  normal: { stroke: "#22c55e", fill: "#22c55e" },
+  danger: { stroke: "#dc2626", fill: "#ef4444", label: "#fecaca" },
+  restricted: { stroke: "#d97706", fill: "#f59e0b", label: "#fef3c7" },
+  prohibited: { stroke: "#7f1d1d", fill: "#b91c1c", label: "#fecaca" },
+  normal: { stroke: "#15803d", fill: "#22c55e", label: "#dcfce7" },
 };
 
 function localToMap(point) {
@@ -32,20 +34,7 @@ function mapToLocal(point) {
 }
 
 function getAreaCenter(area) {
-  if (area.center) {
-    return localToMap(area.center);
-  }
-
-  const points = area.polygon ?? [];
-  const total = points.reduce(
-    (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }),
-    { x: 0, y: 0 }
-  );
-
-  return localToMap({
-    x: total.x / Math.max(points.length, 1),
-    y: total.y / Math.max(points.length, 1),
-  });
+  return localToMap(getAreaLocalCenter(area));
 }
 
 function RiskControlMap({
@@ -56,6 +45,8 @@ function RiskControlMap({
   onDrawComplete,
   confirmDrawToken,
   onDraftPointCountChange,
+  isDataLoading = false,
+  hasDataError = false,
 }) {
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
@@ -64,21 +55,28 @@ function RiskControlMap({
   const draftPointsRef = useRef([]);
   const circleCenterRef = useRef(null);
   const [status, setStatus] = useState("loading");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapRevision, setMapRevision] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
+    const mapNode = mapNodeRef.current;
+    setStatus("loading");
+    mapNode?.replaceChildren();
 
     loadBaiduMap(import.meta.env.VITE_BAIDU_MAP_AK)
       .then((BMap) => {
-        if (!isMounted || !mapNodeRef.current) return;
+        if (!isMounted || !mapNode) return;
 
-        const map = new BMap.Map(mapNodeRef.current, {
+        const map = new BMap.Map(mapNode, {
           enableMapClick: false,
         });
         map.centerAndZoom(new BMap.Point(MAP_CENTER.lng, MAP_CENTER.lat), 18);
         map.setMapType(window.BMAP_SATELLITE_MAP);
         map.enableDragging();
-        map.enableScrollWheelZoom(true);
+        map.disableScrollWheelZoom();
+        map.disableDoubleClickZoom();
+        map.disableKeyboard();
         map.addControl(
           new BMap.NavigationControl({
             anchor: window.BMAP_ANCHOR_TOP_RIGHT,
@@ -93,6 +91,7 @@ function RiskControlMap({
 
         bmapRef.current = BMap;
         mapRef.current = map;
+        setMapRevision((value) => value + 1);
         setStatus("ready");
       })
       .catch(() => {
@@ -101,8 +100,11 @@ function RiskControlMap({
 
     return () => {
       isMounted = false;
+      mapRef.current = null;
+      bmapRef.current = null;
+      mapNode?.replaceChildren();
     };
-  }, []);
+  }, [isFullscreen]);
 
   useEffect(() => {
     const BMap = bmapRef.current;
@@ -123,10 +125,10 @@ function RiskControlMap({
           area.radius,
           {
             strokeColor: colors.stroke,
-            strokeWeight: isSelected ? 4 : 2,
-            strokeOpacity: 0.96,
+            strokeWeight: isSelected ? 4 : 3,
+            strokeOpacity: 1,
             fillColor: colors.fill,
-            fillOpacity: isSelected ? 0.34 : 0.22,
+            fillOpacity: isSelected ? 0.46 : 0.34,
           }
         );
       } else {
@@ -136,10 +138,10 @@ function RiskControlMap({
         });
         overlay = new BMap.Polygon(points, {
           strokeColor: colors.stroke,
-          strokeWeight: isSelected ? 4 : 2,
-          strokeOpacity: 0.96,
+          strokeWeight: isSelected ? 4 : 3,
+          strokeOpacity: 1,
           fillColor: colors.fill,
-          fillOpacity: isSelected ? 0.34 : 0.22,
+          fillOpacity: isSelected ? 0.46 : 0.34,
         });
       }
 
@@ -151,22 +153,21 @@ function RiskControlMap({
       const center = getAreaCenter(area);
       const label = new BMap.Label(area.name, {
         position: new BMap.Point(center.lng, center.lat),
-        offset: new BMap.Size(-42, -12),
+        offset: new BMap.Size(0, 0),
       });
       label.setStyle({
-        width: "84px",
-        border: isSelected ? `1px solid ${colors.stroke}` : "1px solid #cbd5e1",
-        borderRadius: "4px",
-        padding: "3px 5px",
-        color: "#0f172a",
-        background: "rgba(255,255,255,.92)",
-        boxShadow: "0 2px 8px rgba(15,23,42,.14)",
+        border: "0",
+        padding: "0",
+        color: colors.label,
+        background: "transparent",
+        boxShadow: "none",
         fontSize: "11px",
-        lineHeight: "16px",
+        fontWeight: isSelected ? "800" : "700",
+        lineHeight: "14px",
         textAlign: "center",
         whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
+        transform: "translate(-50%, -50%)",
+        textShadow: "0 1px 2px rgba(15, 23, 42, 0.95)",
         cursor: "pointer",
       });
       if (!drawMode) {
@@ -174,7 +175,7 @@ function RiskControlMap({
       }
       map.addOverlay(label);
     });
-  }, [areas, drawMode, onAreaSelect, selectedAreaId, status]);
+  }, [areas, drawMode, mapRevision, onAreaSelect, selectedAreaId, status]);
 
   useEffect(() => {
     const BMap = bmapRef.current;
@@ -264,10 +265,9 @@ function RiskControlMap({
 
     return () => {
       mapNode.removeEventListener("click", handleClick);
-      map.enableDoubleClickZoom();
       clearDraft();
     };
-  }, [drawMode, onDraftPointCountChange, onDrawComplete, status]);
+  }, [drawMode, mapRevision, onDraftPointCountChange, onDrawComplete, status]);
 
   useEffect(() => {
     if (
@@ -292,16 +292,18 @@ function RiskControlMap({
 
     const center = getAreaCenter(area);
     map.panTo(new BMap.Point(center.lng, center.lat));
-  }, [areas, selectedAreaId]);
+  }, [areas, mapRevision, selectedAreaId, status]);
 
   return (
-    <MapFrame>
+    <MapFrame data-map-fullscreen={isFullscreen}>
       <MapCanvas ref={mapNodeRef} aria-label="风险区域电子围栏地图" />
-      {status === "loading" ? <MapStatus>地图加载中...</MapStatus> : null}
-      {status === "error" ? (
-        <MapStatus>地图加载失败，请检查 VITE_BAIDU_MAP_AK</MapStatus>
+      <MapFullscreenButton isFullscreen={isFullscreen} onChange={setIsFullscreen} />
+      {status === "error" || hasDataError ? (
+        <MapStatus>地图信息加载失败</MapStatus>
+      ) : status === "loading" || isDataLoading ? (
+        <MapStatus>地图信息加载中</MapStatus>
       ) : null}
-      {drawMode ? (
+      {drawMode && status === "ready" && !isDataLoading && !hasDataError ? (
         <DrawHint>
           {drawMode === "polygon"
             ? "单击添加边界点，完成后点击确认创建"
@@ -319,6 +321,7 @@ const MapFrame = styled.div`
   min-height: 0;
   overflow: hidden;
   background: hsl(216 23% 94%);
+  &[data-map-fullscreen="true"] { position: fixed; inset: 0; z-index: 1200; width: 100vw; height: 100vh; }
 `;
 
 const MapCanvas = styled.div`
@@ -329,11 +332,15 @@ const MapCanvas = styled.div`
 const MapStatus = styled.div`
   position: absolute;
   inset: 0;
+  z-index: 20;
   display: grid;
   place-items: center;
-  color: hsl(218 10% 42%);
-  background: hsl(216 23% 95% / 0.86);
+  color: white;
+  background: hsl(218 28% 12% / 0.66);
   font-size: 0.8125rem;
+  font-weight: 700;
+  pointer-events: auto;
+  cursor: wait;
 `;
 
 const DrawHint = styled.div`

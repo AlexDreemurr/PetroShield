@@ -1,6 +1,8 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
+import { getAreaLocalCenter } from "../BaiduSatelliteMap/mapGeometry";
+import MapFullscreenButton from "../BaiduSatelliteMap/MapFullscreenButton";
 import { API_BASE_URL } from "../../config/api";
 import { FONT_SIZES } from "../../constants/STYLES";
 
@@ -31,10 +33,10 @@ const TRACK_COLORS = {
 };
 
 const AREA_COLORS = {
-  danger: { stroke: "#ef4444", fill: "#f87171" },
-  restricted: { stroke: "#f59e0b", fill: "#fbbf24" },
-  prohibited: { stroke: "#991b1b", fill: "#dc2626" },
-  normal: { stroke: "#16a34a", fill: "#4ade80" },
+  danger: { stroke: "#dc2626", fill: "#ef4444", label: "#fecaca" },
+  restricted: { stroke: "#d97706", fill: "#f59e0b", label: "#fef3c7" },
+  prohibited: { stroke: "#7f1d1d", fill: "#b91c1c", label: "#fecaca" },
+  normal: { stroke: "#15803d", fill: "#22c55e", label: "#dcfce7" },
 };
 
 function localToMap(point) {
@@ -45,13 +47,7 @@ function localToMap(point) {
 }
 
 function getAreaLabelCoordinate(area) {
-  if (area.center) return localToMap(area.center);
-  const points = Array.isArray(area.polygon) ? area.polygon : [];
-  if (points.length === 0) return MAP_CENTER;
-  return localToMap({
-    x: points.reduce((sum, point) => sum + Number(point.x), 0) / points.length,
-    y: points.reduce((sum, point) => sum + Number(point.y), 0) / points.length,
-  });
+  return localToMap(getAreaLocalCenter(area));
 }
 
 const zoneAnchors = [
@@ -386,7 +382,7 @@ function createPersonIcon(BMap, person, isSelected) {
       <defs>${shadowFilter}</defs>
       ${selectedRing}
       <g${filterAttr}>
-        <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="4"/>
+        <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="2.2"/>
         <circle cx="18" cy="15" r="4" fill="white"/>
         <path d="M10 27c1.8-4.2 5-6.3 8-6.3s6.2 2.1 8 6.3" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
       </g>
@@ -409,6 +405,8 @@ function PeopleLocationMap({
   onPersonSelect,
   showTrack = true,
   className,
+  isDataLoading = false,
+  hasDataError = false,
 }) {
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
@@ -418,6 +416,9 @@ function PeopleLocationMap({
   const [showPersonNames, setShowPersonNames] = useState(true);
   const [showAllAreas, setShowAllAreas] = useState(true);
   const [riskAreas, setRiskAreas] = useState([]);
+  const [areaStatus, setAreaStatus] = useState("loading");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapRevision, setMapRevision] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -427,10 +428,16 @@ function PeopleLocationMap({
         return response.json();
       })
       .then((payload) => {
-        if (isMounted) setRiskAreas(payload.items ?? []);
+        if (isMounted) {
+          setRiskAreas(payload.items ?? []);
+          setAreaStatus("ready");
+        }
       })
       .catch(() => {
-        if (isMounted) setRiskAreas([]);
+        if (isMounted) {
+          setRiskAreas([]);
+          setAreaStatus("error");
+        }
       });
     return () => {
       isMounted = false;
@@ -440,22 +447,27 @@ function PeopleLocationMap({
   useEffect(() => {
     let isMounted = true;
     const ak = import.meta.env.VITE_BAIDU_MAP_AK;
+    const mapNode = mapNodeRef.current;
+    setStatus("loading");
+    mapNode?.replaceChildren();
 
     loadBaiduMap(ak)
       .then((BMap) => {
-        if (!isMounted || !mapNodeRef.current) {
+        if (!isMounted || !mapNode) {
           return;
         }
 
         const center = new BMap.Point(MAP_CENTER.lng, MAP_CENTER.lat);
-        const map = new BMap.Map(mapNodeRef.current, {
+        const map = new BMap.Map(mapNode, {
           enableMapClick: false,
         });
 
         map.centerAndZoom(center, 18);
         map.setMapType(window.BMAP_SATELLITE_MAP);
         map.enableDragging();
-        map.enableScrollWheelZoom(true);
+        map.disableScrollWheelZoom();
+        map.disableDoubleClickZoom();
+        map.disableKeyboard();
         map.addControl(
           new BMap.NavigationControl({
             anchor: window.BMAP_ANCHOR_TOP_RIGHT,
@@ -470,6 +482,7 @@ function PeopleLocationMap({
 
         bmapRef.current = BMap;
         mapRef.current = map;
+        setMapRevision((value) => value + 1);
         setStatus("ready");
       })
       .catch(() => {
@@ -480,8 +493,11 @@ function PeopleLocationMap({
 
     return () => {
       isMounted = false;
+      mapRef.current = null;
+      bmapRef.current = null;
+      mapNode?.replaceChildren();
     };
-  }, []);
+  }, [isFullscreen]);
 
   useEffect(() => {
     const BMap = bmapRef.current;
@@ -504,10 +520,10 @@ function PeopleLocationMap({
             Number(area.radius),
             {
               strokeColor: colors.stroke,
-              strokeWeight: 2,
-              strokeOpacity: 0.92,
+              strokeWeight: 3,
+              strokeOpacity: 1,
               fillColor: colors.fill,
-              fillOpacity: 0.2,
+              fillOpacity: 0.34,
             }
           );
         } else {
@@ -518,10 +534,10 @@ function PeopleLocationMap({
           if (points.length < 3) return;
           overlay = new BMap.Polygon(points, {
             strokeColor: colors.stroke,
-            strokeWeight: 2,
-            strokeOpacity: 0.92,
+            strokeWeight: 3,
+            strokeOpacity: 1,
             fillColor: colors.fill,
-            fillOpacity: 0.2,
+            fillOpacity: 0.34,
           });
         }
         map.addOverlay(overlay);
@@ -529,17 +545,19 @@ function PeopleLocationMap({
         const labelCoordinate = getAreaLabelCoordinate(area);
         const label = new BMap.Label(area.name, {
           position: new BMap.Point(labelCoordinate.lng, labelCoordinate.lat),
-          offset: new BMap.Size(-24, -9),
+          offset: new BMap.Size(0, 0),
         });
         label.setStyle({
-          padding: "2px 6px",
-          border: `1px solid ${colors.stroke}`,
-          borderRadius: "4px",
-          color: colors.stroke,
-          background: "rgba(255, 255, 255, 0.88)",
+          padding: "0",
+          border: "0",
+          color: colors.label,
+          background: "transparent",
+          boxShadow: "none",
           fontSize: "10px",
           fontWeight: "700",
           whiteSpace: "nowrap",
+          transform: "translate(-50%, -50%)",
+          textShadow: "0 1px 2px rgba(15, 23, 42, 0.95)",
         });
         map.addOverlay(label);
       });
@@ -664,6 +682,7 @@ function PeopleLocationMap({
     }
   }, [
     onPersonSelect,
+    mapRevision,
     people,
     selectedPersonId,
     riskAreas,
@@ -675,8 +694,9 @@ function PeopleLocationMap({
   ]);
 
   return (
-    <MapFrame className={className}>
+    <MapFrame data-map-fullscreen={isFullscreen} className={className}>
       <MapCanvas ref={mapNodeRef} aria-label="人员定位百度卫星地图" />
+      <MapFullscreenButton isFullscreen={isFullscreen} onChange={setIsFullscreen} />
       <MapOptions>
         <MapToggle>
           <input
@@ -703,9 +723,10 @@ function PeopleLocationMap({
           <span>显示所有区域</span>
         </MapToggle>
       </MapOptions>
-      {status === "loading" ? <MapStatus>地图加载中...</MapStatus> : null}
-      {status === "error" ? (
-        <MapStatus>地图加载失败，请检查 VITE_BAIDU_MAP_AK</MapStatus>
+      {status === "error" || areaStatus === "error" || hasDataError ? (
+        <MapStatus>地图信息加载失败</MapStatus>
+      ) : status === "loading" || areaStatus === "loading" || isDataLoading ? (
+        <MapStatus>地图信息加载中</MapStatus>
       ) : null}
     </MapFrame>
   );
@@ -719,6 +740,7 @@ const MapFrame = styled.div`
   border: 1px solid hsl(220 13% 88%);
   border-radius: 8px;
   background: hsl(216 23% 95%);
+  &[data-map-fullscreen="true"] { position: fixed; inset: 0; z-index: 1200; width: 100vw; height: 100vh; border: 0; border-radius: 0; }
 `;
 
 const MapCanvas = styled.div`
@@ -729,7 +751,7 @@ const MapCanvas = styled.div`
 
 const MapOptions = styled.div`
   position: absolute;
-  left: 12px;
+  left: 52px;
   top: 12px;
   z-index: 2;
   display: flex;
@@ -762,14 +784,17 @@ const MapToggle = styled.label`
 const MapStatus = styled.div`
   position: absolute;
   inset: 0;
+  z-index: 20;
   display: grid;
   place-items: center;
   padding: 16px;
-  color: hsl(218 10% 45%);
-  background: hsl(216 23% 95% / 0.82);
+  color: white;
+  background: hsl(218 28% 12% / 0.66);
   font-size: ${FONT_SIZES.peopleMapStatus};
+  font-weight: 700;
   text-align: center;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: wait;
 `;
 
 export default PeopleLocationMap;

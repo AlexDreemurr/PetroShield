@@ -750,6 +750,8 @@ function PeopleManagement() {
           people={displayedPeople}
           selectedPersonId={selectedPersonId}
           showTrack={showTrack}
+          isDataLoading={isLoading}
+          hasDataError={hasError}
           onPersonSelect={(person) => setSelectedPersonId(person.id)}
         />
         <SelectedPersonCard

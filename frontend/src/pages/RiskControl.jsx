@@ -32,149 +32,6 @@ const AREA_TYPES = {
   normal: { label: "普通区", tone: "green" },
 };
 
-const INITIAL_AREAS = [
-  {
-    id: "area-tank-a",
-    name: "A区储罐围栏",
-    code: "AREA-A-01",
-    type: "danger",
-    riskLevel: "高风险",
-    shape: "polygon",
-    polygon: [
-      { x: 120, y: 80 },
-      { x: 260, y: 80 },
-      { x: 260, y: 210 },
-      { x: 120, y: 210 },
-    ],
-    center: { x: 190, y: 145 },
-    manager: "李四",
-    department: "生产部",
-    peopleCount: 6,
-    deviceCount: 4,
-    alertCount: 2,
-    enabled: true,
-    rules: {
-      crossBoundary: true,
-      dwellEnabled: true,
-      dwellMinutes: 20,
-      capacityEnabled: true,
-      maxPeople: 12,
-      priority: "高",
-    },
-  },
-  {
-    id: "area-loading-b",
-    name: "B区装卸作业区",
-    code: "AREA-B-02",
-    type: "restricted",
-    riskLevel: "中风险",
-    shape: "polygon",
-    polygon: [
-      { x: 300, y: 120 },
-      { x: 430, y: 120 },
-      { x: 430, y: 260 },
-      { x: 300, y: 260 },
-    ],
-    center: { x: 365, y: 190 },
-    manager: "王五",
-    department: "运维部",
-    peopleCount: 9,
-    deviceCount: 3,
-    alertCount: 1,
-    enabled: true,
-    rules: {
-      crossBoundary: true,
-      dwellEnabled: true,
-      dwellMinutes: 30,
-      capacityEnabled: true,
-      maxPeople: 15,
-      priority: "中",
-    },
-  },
-  {
-    id: "area-pump-c",
-    name: "C区泵房",
-    code: "AREA-C-03",
-    type: "restricted",
-    riskLevel: "中风险",
-    shape: "polygon",
-    polygon: [
-      { x: 500, y: 300 },
-      { x: 610, y: 300 },
-      { x: 610, y: 395 },
-      { x: 500, y: 395 },
-    ],
-    center: { x: 555, y: 347.5 },
-    manager: "赵六",
-    department: "设备部",
-    peopleCount: 4,
-    deviceCount: 5,
-    alertCount: 0,
-    enabled: true,
-    rules: {
-      crossBoundary: true,
-      dwellEnabled: true,
-      dwellMinutes: 45,
-      capacityEnabled: false,
-      maxPeople: 10,
-      priority: "中",
-    },
-  },
-  {
-    id: "area-chemical-store",
-    name: "危化品仓库",
-    code: "AREA-D-04",
-    type: "prohibited",
-    riskLevel: "高风险",
-    shape: "circle",
-    center: { x: 430, y: 62 },
-    radius: 48,
-    manager: "孙七",
-    department: "安保部",
-    peopleCount: 0,
-    deviceCount: 3,
-    alertCount: 1,
-    enabled: true,
-    rules: {
-      crossBoundary: true,
-      dwellEnabled: false,
-      dwellMinutes: 5,
-      capacityEnabled: true,
-      maxPeople: 0,
-      priority: "紧急",
-    },
-  },
-  {
-    id: "area-office",
-    name: "综合办公区",
-    code: "AREA-O-05",
-    type: "normal",
-    riskLevel: "低风险",
-    shape: "polygon",
-    polygon: [
-      { x: 40, y: 40 },
-      { x: 105, y: 40 },
-      { x: 105, y: 105 },
-      { x: 40, y: 105 },
-    ],
-    center: { x: 72.5, y: 72.5 },
-    manager: "周八",
-    department: "行政部",
-    peopleCount: 18,
-    deviceCount: 2,
-    alertCount: 0,
-    enabled: true,
-    rules: {
-      crossBoundary: false,
-      dwellEnabled: false,
-      dwellMinutes: 60,
-      capacityEnabled: true,
-      maxPeople: 50,
-      priority: "低",
-    },
-  },
-];
-
 const RISK_LEVEL_LABELS = {
   low: "低风险",
   medium: "中风险",
@@ -285,28 +142,26 @@ function MetricCard({ icon: Icon, label, value, unit, tone }) {
 }
 
 function RiskControl() {
-  const [areas, setAreas] = useState(INITIAL_AREAS);
-  const [selectedAreaId, setSelectedAreaId] = useState(INITIAL_AREAS[0].id);
+  const [areas, setAreas] = useState([]);
+  const [selectedAreaId, setSelectedAreaId] = useState(null);
   const [keyword, setKeyword] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [drawMode, setDrawMode] = useState(null);
-  const [draft, setDraft] = useState(INITIAL_AREAS[0]);
+  const [draft, setDraft] = useState(null);
+  const [isLoadingAreas, setIsLoadingAreas] = useState(true);
+  const [hasAreaLoadError, setHasAreaLoadError] = useState(false);
   const [savedMessage, setSavedMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [draftPointCount, setDraftPointCount] = useState(0);
   const [confirmDrawToken, setConfirmDrawToken] = useState(0);
-  const [managerOptions, setManagerOptions] = useState([
-    { name: "李四", department: "生产部" },
-    { name: "王五", department: "运维部" },
-    { name: "赵六", department: "设备部" },
-    { name: "孙七", department: "安保部" },
-    { name: "周八", department: "行政部" },
-  ]);
+  const [managerOptions, setManagerOptions] = useState([]);
 
   useEffect(() => {
     let isMounted = true;
+    setIsLoadingAreas(true);
+    setHasAreaLoadError(false);
 
     fetch(`${API_BASE_URL}/risk-control/overview`)
       .then((response) => {
@@ -316,16 +171,22 @@ function RiskControl() {
       .then((payload) => {
         if (!isMounted) return;
         const nextAreas = (payload.items ?? []).map(normalizeApiArea);
-        if (nextAreas.length > 0) {
-          setAreas(nextAreas);
-          setSelectedAreaId(nextAreas[0].id);
-        }
+        setAreas(nextAreas);
+        setSelectedAreaId(nextAreas[0]?.id ?? null);
+        setDraft(nextAreas[0] ?? null);
         if (payload.managers?.length > 0) {
           setManagerOptions(payload.managers);
         }
       })
       .catch(() => {
-        // Keep the seeded frontend snapshot available when the API is offline.
+        if (!isMounted) return;
+        setAreas([]);
+        setSelectedAreaId(null);
+        setDraft(null);
+        setHasAreaLoadError(true);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingAreas(false);
       });
 
     return () => {
@@ -483,13 +344,21 @@ function RiskControl() {
         `${API_BASE_URL}/risk-control/areas/${encodeURIComponent(draft.id)}`,
         { method: "DELETE" }
       );
-      if (!response.ok) throw new Error("Failed to delete risk area");
+      if (!response.ok) {
+        const error = new Error("Failed to delete risk area");
+        error.status = response.status;
+        throw error;
+      }
 
       removeAreaFromView(draft.id);
       setDeleteDialogOpen(false);
       setSavedMessage("区域已删除");
-    } catch {
-      setSavedMessage("删除失败，请检查后端服务");
+    } catch (error) {
+      setSavedMessage(
+        error.status === 405
+          ? "线上后端尚未部署删除接口"
+          : "删除失败，请检查后端服务"
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -530,7 +399,7 @@ function RiskControl() {
               <option key={key} value={key}>{item.label}</option>
             ))}
           </TypeSelect>
-          <PrimaryButton type="button" onClick={() => startDrawing("polygon")}>
+          <PrimaryButton type="button" disabled={isLoadingAreas || hasAreaLoadError} onClick={() => startDrawing("polygon")}>
             <Plus size={15} /> 新增区域
           </PrimaryButton>
         </HeaderActions>
@@ -575,7 +444,9 @@ function RiskControl() {
                 </AreaStats>
               </AreaItem>
             ))}
-            {visibleAreas.length === 0 ? <EmptyState>未找到符合条件的区域</EmptyState> : null}
+            {isLoadingAreas ? <EmptyState>区域数据加载中...</EmptyState> : null}
+            {!isLoadingAreas && hasAreaLoadError ? <EmptyState>区域数据加载失败</EmptyState> : null}
+            {!isLoadingAreas && !hasAreaLoadError && visibleAreas.length === 0 ? <EmptyState>暂无区域数据</EmptyState> : null}
           </AreaList>
         </AreaPanel>
 
@@ -586,9 +457,9 @@ function RiskControl() {
               <span>{selectedArea?.name ?? "未选择区域"}</span>
             </MapHeading>
             <DrawTools>
-              <ToolButton type="button" title="选择区域" $active={!drawMode} onClick={() => setDrawMode(null)}><MousePointer2 size={15} /></ToolButton>
-              <ToolButton type="button" title="绘制多边形" $active={drawMode === "polygon"} onClick={() => startDrawing("polygon")}><Pentagon size={15} /></ToolButton>
-              <ToolButton type="button" title="绘制圆形" $active={drawMode === "circle"} onClick={() => startDrawing("circle")}><Circle size={15} /></ToolButton>
+              <ToolButton type="button" title="选择区域" disabled={isLoadingAreas || hasAreaLoadError} $active={!drawMode} onClick={() => setDrawMode(null)}><MousePointer2 size={15} /></ToolButton>
+              <ToolButton type="button" title="绘制多边形" disabled={isLoadingAreas || hasAreaLoadError} $active={drawMode === "polygon"} onClick={() => startDrawing("polygon")}><Pentagon size={15} /></ToolButton>
+              <ToolButton type="button" title="绘制圆形" disabled={isLoadingAreas || hasAreaLoadError} $active={drawMode === "circle"} onClick={() => startDrawing("circle")}><Circle size={15} /></ToolButton>
               {drawMode === "polygon" ? (
                 <ConfirmDrawButton
                   type="button"
@@ -609,6 +480,8 @@ function RiskControl() {
               onDrawComplete={handleDrawComplete}
               confirmDrawToken={confirmDrawToken}
               onDraftPointCountChange={handleDraftPointCountChange}
+              isDataLoading={isLoadingAreas}
+              hasDataError={hasAreaLoadError}
             />
             <MapLegend>
               {Object.entries(AREA_TYPES).map(([key, item]) => (
@@ -625,10 +498,10 @@ function RiskControl() {
         <ConfigPanel>
           <PanelHeader>
             <PanelTitle><SlidersHorizontal size={15} />规则配置</PanelTitle>
-            <EnableControl>
+            {draft ? <EnableControl>
               <span>{draft?.enabled ? "已启用" : "已停用"}</span>
               <Toggle checked={Boolean(draft?.enabled)} onChange={(value) => updateDraft("enabled", value)} label="启用区域" />
-            </EnableControl>
+            </EnableControl> : null}
           </PanelHeader>
           {draft ? (
             <ConfigBody>
@@ -705,7 +578,9 @@ function RiskControl() {
                 <Check size={16} />
               </OwnerCard>
             </ConfigBody>
-          ) : null}
+          ) : (
+            <ConfigEmpty>{isLoadingAreas ? "区域配置加载中..." : hasAreaLoadError ? "区域配置加载失败" : "请选择或创建一个区域"}</ConfigEmpty>
+          )}
           <ConfigFooter>
             <DeleteButton type="button" onClick={() => setDeleteDialogOpen(true)} disabled={!draft || isDeleting}><Trash2 size={14} />删除区域</DeleteButton>
             <ResetButton type="button" onClick={() => setDraft(selectedArea)} disabled={!draft}><RotateCcw size={14} />重置</ResetButton>
@@ -796,6 +671,7 @@ const PrimaryButton = styled.button`
   font-weight: 600;
   cursor: pointer;
   &:hover { background: hsl(220 90% 44%); }
+  &:disabled { color: hsl(218 10% 68%); background: hsl(220 13% 88%); cursor: not-allowed; }
 `;
 
 const MetricGrid = styled.div`display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;`;
@@ -881,6 +757,7 @@ const DrawTools = styled.div`display: flex; align-items: center; gap: 4px;`;
 const ToolButton = styled.button`
   width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid ${(p) => p.$active ? "hsl(217 91% 64%)" : "hsl(220 13% 85%)"};
   border-radius: 5px; color: ${(p) => p.$active ? COLORS.blue : "hsl(218 12% 38%)"}; background: ${(p) => p.$active ? "hsl(214 100% 96%)" : "white"}; cursor: pointer;
+  &:disabled { color: hsl(218 10% 68%); background: hsl(220 13% 94%); cursor: not-allowed; }
 `;
 const ConfirmDrawButton = styled.button`
   height: 30px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid ${COLORS.blue}; border-radius: 5px;
@@ -889,7 +766,7 @@ const ConfirmDrawButton = styled.button`
 `;
 const MapBody = styled.div`position: relative; min-height: 0; overflow: hidden;`;
 const MapLegend = styled.div`
-  position: absolute; left: 12px; top: 12px; z-index: 2; display: flex; gap: 10px; border: 1px solid hsl(220 13% 86%); border-radius: 5px;
+  position: absolute; left: 52px; top: 12px; z-index: 2; display: flex; gap: 10px; border: 1px solid hsl(220 13% 86%); border-radius: 5px;
   padding: 7px 9px; background: hsl(0 0% 100% / 0.94); box-shadow: 0 3px 12px hsl(218 30% 20% / 0.12); font-size: 0.625rem;
   span { display: inline-flex; align-items: center; gap: 4px; } i { width: 7px; height: 7px; border-radius: 50%; }
   i[data-tone="red"] { background: #ef4444; } i[data-tone="darkRed"] { background: #991b1b; } i[data-tone="orange"] { background: #f59e0b; } i[data-tone="green"] { background: #22c55e; }
@@ -910,6 +787,7 @@ const ToggleThumb = styled.span`
   box-shadow: 0 1px 3px hsl(218 30% 20% / 0.24); transform: translateX(${(p) => p.$checked ? "14px" : "0"}); transition: transform 120ms ease;
 `;
 const ConfigBody = styled.div`min-height: 0; overflow-y: auto; padding: 12px;`;
+const ConfigEmpty = styled.div`display: grid; place-items: center; min-height: 0; padding: 20px; color: hsl(218 10% 52%); font-size: 0.75rem; text-align: center;`;
 const SectionTitle = styled.h3`color: hsl(218 18% 22%); font-size: 0.75rem; font-weight: 700;`;
 const SectionHeading = styled.div`margin-top: 16px; display: flex; align-items: center; justify-content: space-between;`;
 const RuleCount = styled.span`color: hsl(218 10% 48%); font-size: 0.625rem;`;
