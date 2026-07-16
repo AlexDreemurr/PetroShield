@@ -165,6 +165,7 @@ petroshield/
 - 实时告警列表，`查看更多` 跳转 `/alarm-center`。
 - 告警趋势分析：支持近 1/3/7/30 天与 hour/day/week 粒度。
 - 人员健康分析：基于 `person_health_observation`。
+- 首页人员健康分析卡片固定显示前 4 个区域；点击卡片或展开图标后，模态框显示全部区域并支持纵向滚动。
 - 设备在线率趋势：基于 `device_realtime_observation`。
 
 地图：
@@ -266,6 +267,7 @@ GET /api/v1/devices/overview
 GET  /api/v1/risk-control/overview
 POST /api/v1/risk-control/areas
 PUT  /api/v1/risk-control/areas/{area_id}
+DELETE /api/v1/risk-control/areas/{area_id}
 ```
 
 概览接口聚合 `area`、区域内人员、关联设备、未关闭告警和设备维护负责人。新增及更新接口持久化区域几何、类型、风险等级、启停状态和电子围栏规则；新区域负责人保存在 `rule_config`，已有设备维护负责人可作为默认负责人。

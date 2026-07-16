@@ -2,7 +2,7 @@ import json
 from typing import Literal
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.routes.dashboard import (
@@ -353,6 +353,43 @@ async def update_area(area_id: str, payload: AreaWrite):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Failed to update risk area",
+        ) from exc
+    finally:
+        if "connection" in locals():
+            await connection.close()
+
+
+@router.delete("/areas/{area_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_area(area_id: str):
+    try:
+        connection = await connect_database()
+        async with connection.transaction():
+            area_name = await connection.fetchval(
+                "select name from public.area where id = $1 for update;",
+                area_id,
+            )
+            if not area_name:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Area not found",
+                )
+
+            await connection.execute(
+                "update public.person set location_zone = null where location_zone = $1;",
+                area_name,
+            )
+            await connection.execute(
+                "delete from public.area where id = $1;",
+                area_id,
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Failed to delete risk area: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to delete risk area",
         ) from exc
     finally:
         if "connection" in locals():
