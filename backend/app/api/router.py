@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import dashboard, devices, health, people, statistics
+from app.api.routes import dashboard, devices, health, people, risk_control, statistics
 
 api_router = APIRouter()
 
@@ -26,6 +26,12 @@ api_router.include_router(
     devices.router,
     prefix="/devices",
     tags=["设备管理"],
+)
+
+api_router.include_router(
+    risk_control.router,
+    prefix="/risk-control",
+    tags=["风险管控"],
 )
 
 api_router.include_router(

@@ -126,9 +126,9 @@ function normalizeSeries(items, key) {
 }
 
 function MultiLineChart({ items }) {
-  const width = 460;
-  const height = 160;
-  const padding = { top: 18, right: 22, bottom: 24, left: 36 };
+  const width = 600;
+  const height = 180;
+  const padding = { top: 18, right: 8, bottom: 24, left: 30 };
   const keys = [
     { key: "severe", label: "严重", color: chartColors.red },
     { key: "medium", label: "中等", color: chartColors.orange },
@@ -153,7 +153,7 @@ function MultiLineChart({ items }) {
     <ChartBox>
       <ChartLegend>
         {keys.map((line) => (
-          <LegendItem key={line.key} $color={line.color}>
+          <LegendItem key={line.key} $color={line.color} $prominent>
             {line.label}
           </LegendItem>
         ))}
@@ -163,7 +163,7 @@ function MultiLineChart({ items }) {
         role="img"
         aria-label="告警趋势"
       >
-        <AxisUnit x="4" y="10">
+        <AxisUnit x="4" y="10" $prominent>
           次
         </AxisUnit>
         {tickValues.map((value) => {
@@ -176,7 +176,7 @@ function MultiLineChart({ items }) {
                 y1={y}
                 y2={y}
               />
-              <YAxisLabel x={padding.left - 7} y={y + 3}>
+              <YAxisLabel x={padding.left - 7} y={y + 3} $prominent>
                 {value}
               </YAxisLabel>
             </React.Fragment>
@@ -218,7 +218,12 @@ function MultiLineChart({ items }) {
           );
         })}
         {items.map((item, index) => (
-          <AxisLabel key={item.label} x={getX(index)} y={height - 5}>
+          <AxisLabel
+            key={item.label}
+            x={getX(index)}
+            y={height - 5}
+            $prominent
+          >
             {index % labelInterval === 0 || index === items.length - 1
               ? item.label
               : ""}
@@ -249,7 +254,7 @@ function BarChart({ items }) {
 }
 
 function LineChart({ items }) {
-  const width = 460;
+  const width = 560;
   const height = 160;
   const padding = { top: 16, right: 22, bottom: 24, left: 36 };
   const values = items.map((item) => Number(item.value ?? 0));
@@ -335,7 +340,7 @@ function LineChart({ items }) {
   );
 }
 
-function DonutChart({ total, items, centerLabel }) {
+function DonutChart({ total, items, centerLabel, compactLegend = false }) {
   const size = 128;
   const radius = 46;
   const circumference = 2 * Math.PI * radius;
@@ -388,7 +393,7 @@ function DonutChart({ total, items, centerLabel }) {
       </DonutSvg>
       <DonutLegend>
         {items.map((item, index) => (
-          <DonutLegendItem key={item.label}>
+          <DonutLegendItem key={item.label} $compact={compactLegend}>
             <LegendDot $color={palette[index % palette.length]} />
             <span>{item.label}</span>
             <strong>{item.ratio}%</strong>
@@ -661,6 +666,7 @@ function StatisticsAnalysis() {
             total={alarmTotal}
             items={data.alarm_type_distribution}
             centerLabel="总告警数"
+            compactLegend
           />
         </Panel>
         <Panel $area="risk">
@@ -669,6 +675,7 @@ function StatisticsAnalysis() {
             total={data.metrics.risk_area_count}
             items={data.risk_level_distribution}
             centerLabel="风险区域"
+            compactLegend
           />
         </Panel>
         <Panel $area="heat">
@@ -744,10 +751,10 @@ const Wrapper = styled.div`
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 104px 30px minmax(0, 1fr);
-  gap: 8px;
-  overflow: hidden;
-  padding: 10px 14px 18px;
+  grid-template-rows: 20px 96px 28px minmax(0, 1fr);
+  gap: 7px;
+  overflow: auto;
+  padding: 8px 14px 12px;
   background: hsl(216 26% 97%);
 
   @media (max-height: 700px) {
@@ -776,20 +783,20 @@ const MetricGrid = styled.div`
 
 const MetricCard = styled.article`
   min-width: 0;
-  height: 104px;
+  height: 96px;
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 27px;
+  grid-template-rows: minmax(0, 1fr) 24px;
   gap: 3px 10px;
   border: 1px solid hsl(220 13% 88%);
   border-radius: 8px;
-  padding: 9px 12px 7px;
+  padding: 7px 12px 6px;
   background: white;
 
   > svg {
     grid-column: 1 / -1;
     grid-row: 2;
-    height: 27px;
+    height: 24px;
   }
 `;
 
@@ -842,10 +849,11 @@ const Toolbar = styled.div`
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  min-height: 0;
 `;
 
 const FilterButton = styled.button`
-  height: 30px;
+  height: 28px;
   border: 1px solid hsl(217 93% 82%);
   border-radius: 6px;
   padding: 0 14px;
@@ -856,7 +864,7 @@ const FilterButton = styled.button`
 `;
 
 const DateRange = styled.div`
-  height: 30px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -888,7 +896,7 @@ const DateInput = styled.input`
 `;
 
 const RefreshButton = styled.button`
-  height: 30px;
+  height: 28px;
   border: 1px solid hsl(220 13% 86%);
   border-radius: 6px;
   display: inline-flex;
@@ -922,9 +930,9 @@ const DashboardGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   grid-template-rows:
-    minmax(166px, 1.04fr)
-    minmax(150px, 0.94fr)
-    minmax(166px, 1fr);
+    minmax(156px, 1fr)
+    minmax(140px, 0.88fr)
+    minmax(176px, 1.14fr);
   grid-auto-flow: row;
   grid-auto-rows: minmax(166px, 1fr);
   gap: 8px;
@@ -992,7 +1000,8 @@ const LegendItem = styled.span`
   position: relative;
   padding-left: 12px;
   color: hsl(218 10% 42%);
-  font-size: ${FONT_SIZES.dashboardChartLegend};
+  font-size: ${(p) =>
+    p.$prominent ? "0.6875rem" : FONT_SIZES.dashboardChartLegend};
 
   &::before {
     content: "";
@@ -1037,7 +1046,8 @@ const Point = styled.circle`
 
 const AxisLabel = styled.text`
   fill: hsl(218 10% 45%);
-  font-size: ${FONT_SIZES.dashboardAxis};
+  font-size: ${(p) =>
+    p.$prominent ? "0.6875rem" : FONT_SIZES.dashboardAxis};
   font-family: var(--font-data);
   text-anchor: middle;
 `;
@@ -1048,7 +1058,8 @@ const YAxisLabel = styled(AxisLabel)`
 
 const AxisUnit = styled.text`
   fill: hsl(218 10% 45%);
-  font-size: ${FONT_SIZES.dashboardAxis};
+  font-size: ${(p) =>
+    p.$prominent ? "0.6875rem" : FONT_SIZES.dashboardAxis};
   font-family: var(--font-data);
 `;
 
@@ -1144,7 +1155,9 @@ const DonutLegend = styled.div`
 const DonutLegendItem = styled.div`
   min-width: 0;
   display: grid;
-  grid-template-columns: 8px minmax(60px, 120px) 34px 38px;
+  grid-template-columns:
+    8px minmax(60px, ${(p) => (p.$compact ? "84px" : "120px")})
+    34px 38px;
   align-items: center;
   gap: 4px;
   color: hsl(218 10% 42%);
@@ -1234,7 +1247,7 @@ const TopTableWrap = styled.table`
 
   th,
   td {
-    height: 24px;
+    height: 22px;
     border-bottom: 1px solid hsl(220 13% 91%);
     padding: 0 3px;
     color: hsl(218 15% 24%);

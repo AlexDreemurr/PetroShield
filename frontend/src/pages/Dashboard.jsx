@@ -243,9 +243,7 @@ function Card({
         <MetricUnit>{unit}</MetricUnit>
       </MetricLine>
       <MetricFooter>
-        <MetricDelta $tone={comparisonTone}>
-          {comparisonLabel}
-        </MetricDelta>
+        <MetricDelta $tone={comparisonTone}>{comparisonLabel}</MetricDelta>
         <MetricLabel>{hasError ? "数据获取失败" : "较昨日"}</MetricLabel>
       </MetricFooter>
       <MiniAreaSparkline
@@ -637,12 +635,7 @@ function MultiLineChart({ lines, dayBoundaries = [] }) {
         const x = getX(boundary.index, lines[0]?.values.length ?? 0);
         return (
           <React.Fragment key={`${boundary.index}-${boundary.currentDay}`}>
-            <DayDivider
-              x1={x}
-              x2={x}
-              y1={14}
-              y2={height - padding.bottom}
-            />
+            <DayDivider x1={x} x2={x} y1={14} y2={height - padding.bottom} />
             <DayBoundaryLabel x={x - 4} y="10" textAnchor="end">
               {boundary.previousDay}日
             </DayBoundaryLabel>
@@ -769,12 +762,24 @@ function DeviceOnlineRateChart({ items }) {
         const y = getY(value);
         return (
           <React.Fragment key={value}>
-            <GridLine x1={padding.left} x2={width - padding.right} y1={y} y2={y} />
-            <ChartYAxisLabel x={padding.left - 5} y={y + 3}>{value}</ChartYAxisLabel>
+            <GridLine
+              x1={padding.left}
+              x2={width - padding.right}
+              y1={y}
+              y2={y}
+            />
+            <ChartYAxisLabel x={padding.left - 5} y={y + 3}>
+              {value}
+            </ChartYAxisLabel>
           </React.Fragment>
         );
       })}
-      <ChartYAxis x1={padding.left} x2={padding.left} y1={padding.top} y2={height - padding.bottom} />
+      <ChartYAxis
+        x1={padding.left}
+        x2={padding.left}
+        y1={padding.top}
+        y2={height - padding.bottom}
+      />
       <DeviceOnlineCurve
         d={buildSmoothPath(points)}
         fill="none"
@@ -806,10 +811,19 @@ function DeviceOnlineRateChart({ items }) {
       {hoveredPoint ? (
         <DeviceChartTooltip transform={`translate(${tooltipX} ${tooltipY})`}>
           <rect width={tooltipWidth} height={tooltipHeight} rx="5" />
-          <text x="8" y="15">在线率：{hoveredPoint.online_rate}%</text>
-          <text x="8" y="29">在线：{hoveredPoint.online_count}/{hoveredPoint.total_count}</text>
-          <text x="8" y="43">离线：{hoveredPoint.offline_count}　故障：{hoveredPoint.fault_count}</text>
-          <text x="8" y="57">维护：{hoveredPoint.maintenance_count}　未知：{hoveredPoint.unknown_count}</text>
+          <text x="8" y="15">
+            在线率：{hoveredPoint.online_rate}%
+          </text>
+          <text x="8" y="29">
+            在线：{hoveredPoint.online_count}/{hoveredPoint.total_count}
+          </text>
+          <text x="8" y="43">
+            离线：{hoveredPoint.offline_count}　故障：{hoveredPoint.fault_count}
+          </text>
+          <text x="8" y="57">
+            维护：{hoveredPoint.maintenance_count}　未知：
+            {hoveredPoint.unknown_count}
+          </text>
         </DeviceChartTooltip>
       ) : null}
     </ChartSvg>
@@ -839,8 +853,8 @@ function AlarmTrendCard({
       ? items.length <= 24
         ? 2
         : items.length <= 72
-          ? 6
-          : 24
+        ? 6
+        : 24
       : Math.max(1, Math.ceil(days.length / 7));
   const statusMessage = isLoading
     ? "告警趋势加载中..."
@@ -930,10 +944,10 @@ function HealthHeatmapCard({
   const statusMessage = isLoading
     ? "人员健康分析加载中..."
     : hasError
-      ? "人员健康分析加载失败"
-      : zones.length === 0 || buckets.length === 0
-        ? "暂无人员健康观测数据"
-        : null;
+    ? "人员健康分析加载失败"
+    : zones.length === 0 || buckets.length === 0
+    ? "暂无人员健康观测数据"
+    : null;
 
   return (
     <DashboardSection
@@ -983,7 +997,12 @@ function HealthHeatmapCard({
                       $strength={riskRatio}
                       $isEmpty={observedPeople === 0}
                       tabIndex="0"
-                      aria-label={`${zone} ${formatTrendBucket(bucket, granularity)}，观测${observedPeople}人，中风险${item?.medium_risk_people ?? 0}人，高风险${item?.high_risk_people ?? 0}人`}
+                      aria-label={`${zone} ${formatTrendBucket(
+                        bucket,
+                        granularity
+                      )}，观测${observedPeople}人，中风险${
+                        item?.medium_risk_people ?? 0
+                      }人，高风险${item?.high_risk_people ?? 0}人`}
                     >
                       <HeatmapTooltip>
                         <strong>{zone}</strong>
@@ -1029,10 +1048,10 @@ function DeviceOnlineTrendCard({
   const statusMessage = isLoading
     ? "设备在线率趋势加载中..."
     : hasError
-      ? "设备在线率趋势加载失败"
-      : items.length === 0
-        ? "当前时间范围暂无设备状态数据"
-        : null;
+    ? "设备在线率趋势加载失败"
+    : items.length === 0
+    ? "当前时间范围暂无设备状态数据"
+    : null;
 
   return (
     <DashboardSection
@@ -1069,12 +1088,18 @@ function DeviceOnlineTrendCard({
       <DeviceChartPanelBody>
         <ChartLegendSpacer aria-hidden="true" />
         <ChartCanvas>
-          {statusMessage ? <ChartStatusMessage>{statusMessage}</ChartStatusMessage> : <DeviceOnlineRateChart items={items} />}
+          {statusMessage ? (
+            <ChartStatusMessage>{statusMessage}</ChartStatusMessage>
+          ) : (
+            <DeviceOnlineRateChart items={items} />
+          )}
         </ChartCanvas>
         <DeviceChartAxis $count={Math.max(labels.length, 1)}>
           {labels.map((label, index) => (
             <span key={`${label}-${index}`}>
-              {index % labelInterval === 0 || index === labels.length - 1 ? label : ""}
+              {index % labelInterval === 0 || index === labels.length - 1
+                ? label
+                : ""}
             </span>
           ))}
         </DeviceChartAxis>
@@ -1101,10 +1126,14 @@ function Dashboard() {
   const [personHealthRangeDays, setPersonHealthRangeDays] = useState(7);
   const [personHealthGranularity, setPersonHealthGranularity] = useState("day");
   const [deviceOnlineTrend, setDeviceOnlineTrend] = useState([]);
-  const [deviceOnlineTrendHasError, setDeviceOnlineTrendHasError] = useState(false);
-  const [isDeviceOnlineTrendLoading, setIsDeviceOnlineTrendLoading] = useState(true);
-  const [deviceOnlineTrendRangeDays, setDeviceOnlineTrendRangeDays] = useState(7);
-  const [deviceOnlineTrendGranularity, setDeviceOnlineTrendGranularity] = useState("day");
+  const [deviceOnlineTrendHasError, setDeviceOnlineTrendHasError] =
+    useState(false);
+  const [isDeviceOnlineTrendLoading, setIsDeviceOnlineTrendLoading] =
+    useState(true);
+  const [deviceOnlineTrendRangeDays, setDeviceOnlineTrendRangeDays] =
+    useState(7);
+  const [deviceOnlineTrendGranularity, setDeviceOnlineTrendGranularity] =
+    useState("day");
 
   const metricSparkSeries = useMemo(() => {
     const alarmTotals = alarmTrend.map(
@@ -1930,6 +1959,15 @@ const BottomGrid = styled.div`
 
   ${Panel} {
     min-height: 0;
+    padding: 8px 14px 8px;
+  }
+
+  ${PanelHeader} {
+    min-height: 24px;
+  }
+
+  ${PanelTitle} {
+    font-size: 0.8125rem;
   }
 
   @media (max-width: 1180px) {
@@ -1944,7 +1982,7 @@ const ChartPanelContent = styled.div`
   display: grid;
   grid-template-rows: 16px minmax(0, 1fr) 20px;
   row-gap: 8px;
-  padding-top: 4px;
+  padding-top: 2px;
 `;
 
 const DeviceChartPanelBody = styled.div`
@@ -1953,7 +1991,7 @@ const DeviceChartPanelBody = styled.div`
   display: grid;
   grid-template-rows: 16px minmax(0, 1fr) 20px;
   row-gap: 8px;
-  padding-top: 4px;
+  padding-top: 2px;
 `;
 
 const ChartLegendSpacer = styled.div`
@@ -2206,10 +2244,7 @@ const Heatmap = styled.div`
   min-height: 0;
   align-self: center;
   display: grid;
-  grid-template-columns: 88px repeat(
-      ${(p) => p.$count},
-      minmax(0, 1fr)
-    );
+  grid-template-columns: 88px repeat(${(p) => p.$count}, minmax(0, 1fr));
   gap: 4px;
 `;
 
@@ -2254,6 +2289,7 @@ const HealthLegend = styled.div`
   gap: 5px;
   color: hsl(218 10% 52%);
   font-size: ${FONT_SIZES.dashboardChartLegend};
+  align-self: center;
 `;
 
 const HealthLegendGradient = styled.span`
@@ -2279,9 +2315,7 @@ const HeatmapTooltip = styled.div`
   visibility: hidden;
   opacity: 0;
   transform: translate(-50%, 2px);
-  transition:
-    opacity 120ms ease,
-    transform 120ms ease;
+  transition: opacity 120ms ease, transform 120ms ease;
   pointer-events: none;
   border-radius: 6px;
   padding: 7px 8px;

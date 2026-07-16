@@ -140,7 +140,7 @@ petroshield/
 | `/people-management` | 人员管理，已接人员定位/轨迹接口，地图为百度卫星图 |
 | `/alarm-center` | 告警中心页面，当前仍偏占位/原型 |
 | `/device-management` | 设备管理，已按原型实现卡片列表、筛选、动态分页和右侧设备详情抽屉；数据来自后端设备概览接口，加载中/失败/空列表均有占位状态 |
-| `/risk-control` | 风险管控，占位/原型 |
+| `/risk-control` | 风险管控工作台已实现：区域列表、GIS 电子围栏、多边形/圆形绘制、区域分级、负责人和越界/停留/人数规则配置；通过风险管控接口读取及持久化 `area` 数据 |
 | `/video-ai` | 视频 AI，占位/原型 |
 | `/statistics-analysis` | 重定向到 `/statistics-analysis/risk-overview` |
 | `/statistics-analysis/risk-overview` | 风险态势总览已按原型实现 KPI、趋势、占比、热力和 TOP 榜图表，数据来自统计概览接口 |
@@ -259,6 +259,16 @@ GET /api/v1/devices/overview
 ```
 
 返回每台设备的基础信息、`device_realtime` 最新状态、维护信息、合规年检信息、告警数量和最近告警。前端设备管理页不保留本地假数据，接口加载中显示“正在加载设备信息...”占位，接口失败或空结果分别显示对应空状态。
+
+风险管控：
+
+```http
+GET  /api/v1/risk-control/overview
+POST /api/v1/risk-control/areas
+PUT  /api/v1/risk-control/areas/{area_id}
+```
+
+概览接口聚合 `area`、区域内人员、关联设备、未关闭告警和设备维护负责人。新增及更新接口持久化区域几何、类型、风险等级、启停状态和电子围栏规则；新区域负责人保存在 `rule_config`，已有设备维护负责人可作为默认负责人。
 
 统计分析：
 
