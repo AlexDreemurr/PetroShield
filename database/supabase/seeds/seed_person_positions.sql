@@ -1,9 +1,7 @@
--- 人员短期轨迹模拟数据。
--- 按当前 public.person 真实人员集合动态生成：每人最近 5 分钟、每秒 1 条 position 轨迹点。
+-- 人员定位模拟数据。
+-- 每人生成锚点日及前 6 天的半小时间隔历史点，并生成最近 5 分钟、每秒 1 条实时轨迹点。
 -- 依赖迁移 20260713000100_add_person_position_current.sql：
 -- 插入 position 后会由触发器自动同步 person_position_current 实时快照。
-
-begin;
 
 do $$
 begin
@@ -19,9 +17,124 @@ $$;
 
 -- 固定 ID 的时间窗口会随执行时间移动；先清理上一批，只删除本 seed 生成的数据。
 delete from public.position
-where id like 'pos-seed-%';
+where id like 'pos-seed-%'
+   or id like 'pos-history-seed-%'
+   or id ~ '^pos-0(0[1-9]|1[0-6])$';
 
-with seeded_person as (
+-- 7 天稀疏历史轨迹：过去 6 个完整自然日固定 48 点，锚点日只生成到 seed_now。
+with seed_clock as (
+  select
+    coalesce(
+      nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
+      (now() at time zone 'Asia/Shanghai')::date
+    ) as anchor_date
+),
+clock as (
+  select
+    anchor_date,
+    case
+      when anchor_date = (now() at time zone 'Asia/Shanghai')::date then now()
+      else (anchor_date::timestamp + time '23:59:00') at time zone 'Asia/Shanghai'
+    end as seed_now
+  from seed_clock
+),
+seeded_person as (
+  select
+    p.id as person_id,
+    p.device_type,
+    p.location_zone,
+    p.status,
+    p.risk_level,
+    row_number() over (order by p.id)::integer as person_order
+  from public.person p
+),
+person_anchor as (
+  select
+    sp.*,
+    case
+      when sp.location_zone like '%A区%' or sp.location_zone like '%储罐%' then 220.0
+      when sp.location_zone like '%B区%' or sp.location_zone like '%装卸%' then 360.0
+      when sp.location_zone like '%C区%' or sp.location_zone like '%泵房%' then 520.0
+      when sp.location_zone like '%办公%' or sp.location_zone like '%综合%' then 130.0
+      else 300.0
+    end + (((sp.person_order - 1) % 5) - 2) * 18.0 as base_x,
+    case
+      when sp.location_zone like '%A区%' or sp.location_zone like '%储罐%' then 170.0
+      when sp.location_zone like '%B区%' or sp.location_zone like '%装卸%' then 225.0
+      when sp.location_zone like '%C区%' or sp.location_zone like '%泵房%' then 335.0
+      when sp.location_zone like '%办公%' or sp.location_zone like '%综合%' then 115.0
+      else 230.0
+    end + ((((sp.person_order - 1) / 5) % 5) - 2) * 16.0 as base_y
+  from seeded_person sp
+),
+history_sample as (
+  select
+    pa.*,
+    day_offset,
+    slot,
+    (
+      c.anchor_date::timestamp
+      - make_interval(days => day_offset)
+      + make_interval(mins => slot * 30)
+    ) at time zone 'Asia/Shanghai' as observed_at
+  from person_anchor pa
+  cross join generate_series(0, 6) as day_value(day_offset)
+  cross join generate_series(0, 47) as slot_value(slot)
+  cross join clock c
+)
+insert into public.position (
+  id, person_id, x, y, z, source, confidence, "timestamp", speed, direction
+)
+select
+  format('pos-history-seed-%s-d%s-t%s', person_id, day_offset, lpad(slot::text, 2, '0')),
+  person_id,
+  round((base_x + sin((day_offset * 48 + slot + person_order)::double precision / 4.5) * 14)::numeric, 3)::double precision,
+  round((base_y + cos((day_offset * 48 + slot + person_order)::double precision / 5.5) * 11)::numeric, 3)::double precision,
+  1.0 + (person_order % 4) * 0.1,
+  case
+    when device_type is not null then device_type
+    when status in ('异常', '风险', '禁止进入') then '视觉融合'
+    when person_order % 5 = 0 then '北斗'
+    else 'UWB'
+  end,
+  case
+    when status = '离线' then 0.58
+    when risk_level in ('高', '极高') then 0.84
+    else 0.93
+  end,
+  observed_at,
+  case when status = '离线' then 0 else round((0.35 + (person_order % 7) * 0.12)::numeric, 2)::double precision end,
+  ((slot * 17 + person_order * 23) % 360)::double precision
+from history_sample
+cross join clock c
+where observed_at <= c.seed_now
+on conflict (id) do update set
+  person_id = excluded.person_id,
+  x = excluded.x,
+  y = excluded.y,
+  z = excluded.z,
+  source = excluded.source,
+  confidence = excluded.confidence,
+  "timestamp" = excluded."timestamp",
+  speed = excluded.speed,
+  direction = excluded.direction;
+
+with seed_clock as (
+  select
+    coalesce(
+      nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
+      (now() at time zone 'Asia/Shanghai')::date
+    ) as anchor_date
+),
+clock as (
+  select
+    case
+      when anchor_date = (now() at time zone 'Asia/Shanghai')::date then now()
+      else (anchor_date::timestamp + time '23:59:00') at time zone 'Asia/Shanghai'
+    end as seed_now
+  from seed_clock
+),
+seeded_person as (
   select
     p.id as person_id,
     p.device_id,
@@ -79,7 +192,7 @@ track_sample as (
   select
     ppb.*,
     so.value as second_offset,
-    now() - make_interval(secs => so.value) as position_time,
+    c.seed_now - make_interval(secs => so.value) as position_time,
     case
       when ppb.device_type is not null then ppb.device_type
       when ppb.status = '离线' then 'UWB'
@@ -101,6 +214,7 @@ track_sample as (
     end as movement_scale
   from person_path_base ppb
   cross join second_offset so
+  cross join clock c
 ),
 path_segment as (
   select
@@ -244,7 +358,11 @@ on conflict (id) do update set
 select public.sync_person_position_current(id)
 from public.person;
 
-commit;
+update public.person p
+set last_active_time = current_position."timestamp"
+from public.person_position_current current_position
+where current_position.person_id = p.id
+  and p.id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$';
 
 select
   count(distinct person_id) as person_count,
@@ -258,4 +376,4 @@ select count(*) as current_snapshot_count
 from public.person_position_current;
 
 -- 如需删除本文件生成的模拟轨迹，可单独执行：
--- delete from public.position where id like 'pos-seed-%';
+-- delete from public.position where id like 'pos-seed-%' or id like 'pos-history-seed-%';

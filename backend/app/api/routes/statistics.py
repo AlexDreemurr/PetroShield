@@ -1,5 +1,8 @@
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import asyncpg
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.routes.dashboard import (
     create_ssl_context,
@@ -15,7 +18,11 @@ def ratio(count: int, total: int) -> float:
 
 
 @router.get("/overview")
-async def get_statistics_overview():
+async def get_statistics_overview(
+    days: int | None = Query(default=7, ge=1, le=30),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+):
     database_url = get_database_url()
 
     if not database_url:
@@ -24,9 +31,43 @@ async def get_statistics_overview():
             detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
         )
 
-    metrics_query = """
+    if start_date is not None or end_date is not None:
+        if start_date is None or end_date is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="start_date and end_date must be provided together",
+            )
+        if start_date > end_date:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="start_date must not be after end_date",
+            )
+        if (end_date - start_date).days > 365:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="date range must not exceed 366 days",
+            )
+        range_start = start_date
+        range_end = end_date
+    else:
+        range_end = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        range_start = range_end - timedelta(days=(days or 7) - 1)
+
+    alarm_window = """
+        a."time" >= ($1::date::timestamp at time zone 'Asia/Shanghai')
+        and a."time" < (
+          (($2::date + 1)::timestamp) at time zone 'Asia/Shanghai'
+        )
+    """
+
+    metrics_query = f"""
         select
           (select count(*) from public.alarm) as alarm_count,
+          (
+            select count(*)
+            from public.alarm a
+            where {alarm_window}
+          ) as range_alarm_count,
           (select count(*) from public.person) as person_count,
           (select count(*) from public.device) as device_count,
           (
@@ -63,8 +104,8 @@ async def get_statistics_overview():
     trend_query = """
         with days as (
           select generate_series(
-            date_trunc('day', now() at time zone 'Asia/Shanghai') - interval '6 days',
-            date_trunc('day', now() at time zone 'Asia/Shanghai'),
+            $1::date,
+            $2::date,
             interval '1 day'
           ) as day
         )
@@ -91,8 +132,8 @@ async def get_statistics_overview():
     device_online_trend_query = """
         with days as (
           select generate_series(
-            date_trunc('day', now() at time zone 'Asia/Shanghai') - interval '6 days',
-            date_trunc('day', now() at time zone 'Asia/Shanghai'),
+            $1::date,
+            $2::date,
             interval '1 day'
           ) as day
         ),
@@ -123,9 +164,10 @@ async def get_statistics_overview():
         order by day;
     """
 
-    alarm_type_query = """
+    alarm_type_query = f"""
         select type as label, count(*) as count
-        from public.alarm
+        from public.alarm a
+        where {alarm_window}
         group by type
         order by count(*) desc, type
         limit 6;
@@ -145,18 +187,20 @@ async def get_statistics_overview():
         order by count(*) desc;
     """
 
-    area_heat_query = """
+    area_heat_query = f"""
         select
           coalesce(area.name, alarm.location ->> 'area_id', '未知区域') as label,
           count(alarm.id) as count
         from public.alarm alarm
         left join public.area area on area.id = alarm.location ->> 'area_id'
+        where alarm."time" >= ($1::date::timestamp at time zone 'Asia/Shanghai')
+          and alarm."time" < ((($2::date + 1)::timestamp) at time zone 'Asia/Shanghai')
         group by 1
         order by count(alarm.id) desc
         limit 6;
     """
 
-    top_device_query = """
+    top_device_query = f"""
         select
           d.name,
           d.type,
@@ -164,7 +208,7 @@ async def get_statistics_overview():
           count(a.id) as alarm_count,
           coalesce(area.name, '未分区') as area_name
         from public.device d
-        left join public.alarm a on a.device_id = d.id
+        left join public.alarm a on a.device_id = d.id and {alarm_window}
         left join public.area area on area.id = d.region_id
         left join public.device_compliance dc on dc.device_id = d.id
         group by d.id, d.name, d.type, dc.risk_level, area.name
@@ -172,24 +216,25 @@ async def get_statistics_overview():
         limit 5;
     """
 
-    top_area_query = """
+    top_area_query = f"""
         select
           coalesce(area.name, a.location ->> 'area_id', '未知区域') as name,
           count(a.id) as alarm_count
         from public.alarm a
         left join public.area area on area.id = a.location ->> 'area_id'
+        where {alarm_window}
         group by 1
         order by count(a.id) desc
         limit 5;
     """
 
-    top_person_query = """
+    top_person_query = f"""
         select
           p.name,
           coalesce(p.department, p.company, '未分组') as department,
           count(a.id) as alarm_count
         from public.person p
-        left join public.alarm a on a.person_id = p.id
+        left join public.alarm a on a.person_id = p.id and {alarm_window}
         group by p.id, p.name, p.department, p.company
         order by count(a.id) desc, p.name
         limit 5;
@@ -208,16 +253,18 @@ async def get_statistics_overview():
             database_url,
             ssl=create_ssl_context() if should_use_ssl(database_url) else False,
         )
-        metrics = await connection.fetchrow(metrics_query)
-        alarm_trend = await connection.fetch(trend_query)
+        metrics = await connection.fetchrow(metrics_query, range_start, range_end)
+        alarm_trend = await connection.fetch(trend_query, range_start, range_end)
         person_distribution = await connection.fetch(person_distribution_query)
-        device_online_trend = await connection.fetch(device_online_trend_query)
-        alarm_types = await connection.fetch(alarm_type_query)
+        device_online_trend = await connection.fetch(
+            device_online_trend_query, range_start, range_end
+        )
+        alarm_types = await connection.fetch(alarm_type_query, range_start, range_end)
         risk_levels = await connection.fetch(risk_level_query)
-        area_heat = await connection.fetch(area_heat_query)
-        top_devices = await connection.fetch(top_device_query)
-        top_areas = await connection.fetch(top_area_query)
-        top_people = await connection.fetch(top_person_query)
+        area_heat = await connection.fetch(area_heat_query, range_start, range_end)
+        top_devices = await connection.fetch(top_device_query, range_start, range_end)
+        top_areas = await connection.fetch(top_area_query, range_start, range_end)
+        top_people = await connection.fetch(top_person_query, range_start, range_end)
         device_types = await connection.fetch(device_type_query)
     except Exception as exc:
         print(f"Failed to load statistics overview: {type(exc).__name__}: {exc}")
@@ -229,7 +276,7 @@ async def get_statistics_overview():
         if "connection" in locals():
             await connection.close()
 
-    alarm_total = metrics["alarm_count"]
+    alarm_total = metrics["range_alarm_count"]
     device_total = metrics["device_count"]
     risk_total = metrics["risk_area_count"]
 
@@ -241,6 +288,11 @@ async def get_statistics_overview():
             "risk_area_count": metrics["risk_area_count"],
             "device_online_rate": float(metrics["device_online_rate"]),
             "today_alarm_count": metrics["today_alarm_count"],
+        },
+        "range": {
+            "start_date": range_start.isoformat(),
+            "end_date": range_end.isoformat(),
+            "alarm_count": alarm_total,
         },
         "alarm_trend": [
             {

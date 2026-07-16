@@ -1,6 +1,6 @@
 import GlobalStyles from "./GlobalStyles";
 import React from "react";
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 import Dashboard from "./pages/Dashboard";
 import MainLayout from "./layouts/MainLayout";
 import PeopleManagement from "./pages/PeopleManagement";
@@ -9,6 +9,7 @@ import DeviceManagement from "./pages/DeviceManagement";
 import RiskControl from "./pages/RiskControl";
 import VideoAI from "./pages/VideoAI";
 import StatisticsAnalysis from "./pages/StatisticsAnalysis";
+import StatisticsPlaceholder from "./pages/StatisticsPlaceholder";
 import SystemManagement from "./pages/SystemManagement";
 import styled from "styled-components";
 
@@ -23,26 +24,29 @@ function App() {
           <Route path="/device-management" element={<DeviceManagement />} />
           <Route path="/risk-control" element={<RiskControl />} />
           <Route path="/video-ai" element={<VideoAI />} />
-          <Route path="/statistics-analysis" element={<StatisticsAnalysis />} />
+          <Route
+            path="/statistics-analysis"
+            element={<Navigate to="/statistics-analysis/risk-overview" replace />}
+          />
           <Route
             path="/statistics-analysis/risk-overview"
-            element={<StatisticsAnalysis title="风险态势总览" />}
+            element={<StatisticsAnalysis />}
           />
           <Route
             path="/statistics-analysis/risk-events"
-            element={<StatisticsAnalysis title="风险事件追溯" />}
+            element={<StatisticsPlaceholder title="风险事件追溯" />}
           />
           <Route
             path="/statistics-analysis/alarm-stats"
-            element={<StatisticsAnalysis title="告警统计分析" />}
+            element={<StatisticsPlaceholder title="告警统计分析" />}
           />
           <Route
             path="/statistics-analysis/person-tracks"
-            element={<StatisticsAnalysis title="人员轨迹分析" />}
+            element={<StatisticsPlaceholder title="人员轨迹分析" />}
           />
           <Route
             path="/statistics-analysis/device-stats"
-            element={<StatisticsAnalysis title="设备统计分析" />}
+            element={<StatisticsPlaceholder title="设备统计分析" />}
           />
           <Route path="/system-management" element={<SystemManagement />} />
           <Route

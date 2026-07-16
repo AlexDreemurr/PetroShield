@@ -49,7 +49,7 @@ function Header() {
             <UserName>张三</UserName>
             <UserRole>运营管理员</UserRole>
           </UserText>
-          <ChevronIcon isOpen={isUserMenuOpen}>
+          <ChevronIcon $isOpen={isUserMenuOpen}>
             <Icon id="ChevronDown" size={16} strokeWidth={2} />
           </ChevronIcon>
         </AvatarSelect>
@@ -261,7 +261,7 @@ const UserRole = styled.div`
 const ChevronIcon = styled.div`
   margin-left: auto;
   color: hsl(218 10% 48%);
-  transform: rotate(${(p) => (p.isOpen ? "180deg" : "0deg")});
+  transform: rotate(${(p) => (p.$isOpen ? "180deg" : "0deg")});
   transition: transform 160ms ease;
 `;
 

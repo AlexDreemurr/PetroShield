@@ -1,8 +1,6 @@
 -- 最近 7 天人员健康观测模拟数据。
 -- 依赖 seed.sql 中的 person-001 至 person-025，并可重复执行。
 
-begin;
-
 do $$
 begin
   if (
@@ -15,6 +13,18 @@ begin
 end;
 $$;
 
+create temporary table seed_person_health_snapshot as
+select
+  id,
+  health_status,
+  health_risk_level,
+  last_medical_check,
+  occupational_disease_flag,
+  exposure_level,
+  location_zone
+from public.person
+where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$';
+
 -- 固定 day_offset ID 的日期会随执行日移动；先清理上一批，避免与
 -- unique(person_id, observation_time) 在刷新过程中产生临时冲突。
 delete from public.person_health_observation
@@ -24,8 +34,23 @@ with seeded_person(person_id, person_order) as (
   select
     id,
     row_number() over (order by id)::integer
-  from public.person
-  where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$'
+  from seed_person_health_snapshot
+),
+seed_clock as (
+  select
+    coalesce(
+      nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
+      (now() at time zone 'Asia/Shanghai')::date
+    ) as anchor_date
+),
+clock as (
+  select
+    anchor_date,
+    case
+      when anchor_date = (now() at time zone 'Asia/Shanghai')::date then now()
+      else (anchor_date::timestamp + time '18:00:00') at time zone 'Asia/Shanghai'
+    end as seed_now
+  from seed_clock
 ),
 day_offset as (
   select generate_series(0, 6) as value
@@ -36,9 +61,9 @@ health_samples as (
     sp.person_order,
     d.value as day_offset,
     case
-      when d.value = 0 then now() - make_interval(secs => sp.person_order)
+      when d.value = 0 then c.seed_now - make_interval(secs => sp.person_order)
       else (
-        date_trunc('day', now() at time zone 'Asia/Shanghai')
+        c.anchor_date::timestamp
         - make_interval(days => d.value)
         + time '06:00:00'
         + make_interval(mins => sp.person_order * 25)
@@ -61,8 +86,9 @@ health_samples as (
     p.exposure_level,
     p.location_zone
   from seeded_person sp
-  join public.person p on p.id = sp.person_id
+  join seed_person_health_snapshot p on p.id = sp.person_id
   cross join day_offset d
+  cross join clock c
 )
 insert into public.person_health_observation (
   id,
@@ -95,7 +121,7 @@ on conflict (id) do update set
   exposure_level = excluded.exposure_level,
   location_zone = excluded.location_zone;
 
-commit;
+drop table seed_person_health_snapshot;
 
 select
   (observation_time at time zone 'Asia/Shanghai')::date as observation_date,

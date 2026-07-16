@@ -11,6 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 import { API_BASE_URL } from "../config/api";
+import MiniAreaSparkline from "../components/MiniAreaSparkline/MiniAreaSparkline";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
 
 const chartColors = {
@@ -93,54 +94,60 @@ const defaultData = {
   top_areas: [],
   top_people: [],
   device_type_distribution: [],
+  range: null,
 };
+
+function formatDateInput(date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Shanghai",
+  }).format(date);
+}
+
+function shiftDate(dateValue, days) {
+  const date = new Date(`${dateValue}T12:00:00+08:00`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return formatDateInput(date);
+}
+
+const initialEndDate = formatDateInput(new Date());
+const initialStartDate = shiftDate(initialEndDate, -6);
 
 function formatNumber(value) {
   return Number(value ?? 0).toLocaleString("zh-CN");
 }
 
 function normalizeSeries(items, key) {
-  return items.map((item) => Number(item[key] ?? item.value ?? item.count ?? 0));
-}
-
-function Sparkline({ values, color }) {
-  const width = 170;
-  const height = 32;
-  const maxValue = Math.max(...values, 1);
-  const minValue = Math.min(...values, 0);
-  const range = Math.max(maxValue - minValue, 1);
-  const points = values.map((value, index) => {
-    const x = (index / Math.max(values.length - 1, 1)) * width;
-    const y = height - ((value - minValue) / range) * 22 - 5;
-    return `${x},${y}`;
-  });
-
-  return (
-    <SparkSvg viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-      <polyline points={points.join(" ")} fill="none" stroke={color} />
-    </SparkSvg>
+  return items.map((item) =>
+    Number(item[key] ?? item.value ?? item.count ?? 0)
   );
 }
 
 function MultiLineChart({ items }) {
   const width = 460;
   const height = 160;
-  const padding = { top: 18, right: 12, bottom: 24, left: 36 };
+  const padding = { top: 18, right: 22, bottom: 24, left: 36 };
   const keys = [
     { key: "severe", label: "严重", color: chartColors.red },
     { key: "medium", label: "中等", color: chartColors.orange },
     { key: "general", label: "一般", color: chartColors.blue },
   ];
-  const maxValue = Math.max(
+  const dataMax = Math.max(
     ...items.flatMap((item) => keys.map((line) => Number(item[line.key] ?? 0))),
     1
   );
+  const tickStep = Math.max(1, Math.ceil(dataMax / 4));
+  const axisMax = tickStep * 4;
+  const tickValues = Array.from({ length: 5 }, (_, index) => index * tickStep);
+  const labelInterval = Math.max(1, Math.ceil(items.length / 7));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const getX = (index) =>
     padding.left + (index / Math.max(items.length - 1, 1)) * plotWidth;
   const getY = (value) =>
-    padding.top + plotHeight - (Number(value) / maxValue) * plotHeight;
+    padding.top + plotHeight - (Number(value) / axisMax) * plotHeight;
 
   return (
     <ChartBox>
@@ -151,27 +158,70 @@ function MultiLineChart({ items }) {
           </LegendItem>
         ))}
       </ChartLegend>
-      <ChartSvg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="告警趋势">
-        {[0, 0.25, 0.5, 0.75, 1].map((step) => {
-          const y = padding.top + plotHeight - step * plotHeight;
-          return <GridLine key={step} x1={padding.left} x2={width - padding.right} y1={y} y2={y} />;
+      <ChartSvg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="告警趋势"
+      >
+        <AxisUnit x="4" y="10">
+          次
+        </AxisUnit>
+        {tickValues.map((value) => {
+          const y = getY(value);
+          return (
+            <React.Fragment key={value}>
+              <GridLine
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={y}
+                y2={y}
+              />
+              <YAxisLabel x={padding.left - 7} y={y + 3}>
+                {value}
+              </YAxisLabel>
+            </React.Fragment>
+          );
         })}
+        <AxisLine
+          x1={padding.left}
+          x2={padding.left}
+          y1={padding.top}
+          y2={height - padding.bottom}
+        />
+        <AxisLine
+          x1={padding.left}
+          x2={width - padding.right}
+          y1={height - padding.bottom}
+          y2={height - padding.bottom}
+        />
         {keys.map((line) => {
           const path = items
-            .map((item, index) => `${index === 0 ? "M" : "L"} ${getX(index)} ${getY(item[line.key])}`)
+            .map(
+              (item, index) =>
+                `${index === 0 ? "M" : "L"} ${getX(index)} ${getY(
+                  item[line.key]
+                )}`
+            )
             .join(" ");
           return (
             <React.Fragment key={line.key}>
               <ChartPath d={path} stroke={line.color} />
               {items.map((item, index) => (
-                <Point key={`${line.key}-${item.label}`} cx={getX(index)} cy={getY(item[line.key])} fill={line.color} />
+                <Point
+                  key={`${line.key}-${item.label}`}
+                  cx={getX(index)}
+                  cy={getY(item[line.key])}
+                  fill={line.color}
+                />
               ))}
             </React.Fragment>
           );
         })}
         {items.map((item, index) => (
           <AxisLabel key={item.label} x={getX(index)} y={height - 5}>
-            {item.label}
+            {index % labelInterval === 0 || index === items.length - 1
+              ? item.label
+              : ""}
           </AxisLabel>
         ))}
       </ChartSvg>
@@ -186,8 +236,11 @@ function BarChart({ items }) {
     <BarChartWrap>
       {items.map((item) => (
         <BarItem key={item.label}>
-          <BarValue>{item.count}</BarValue>
-          <BarColumn $height={(item.count / maxValue) * 100} />
+          <BarBody>
+            <BarColumn $height={(item.count / maxValue) * 100}>
+              <BarValue>{item.count}</BarValue>
+            </BarColumn>
+          </BarBody>
           <BarLabel>{item.label}</BarLabel>
         </BarItem>
       ))}
@@ -196,39 +249,89 @@ function BarChart({ items }) {
 }
 
 function LineChart({ items }) {
-  const width = 420;
+  const width = 460;
   const height = 160;
-  const padding = { top: 16, right: 14, bottom: 24, left: 36 };
+  const padding = { top: 16, right: 22, bottom: 24, left: 36 };
   const values = items.map((item) => Number(item.value ?? 0));
-  const maxValue = Math.max(...values, 100);
-  const minValue = Math.min(...values, 70);
-  const range = Math.max(maxValue - minValue, 1);
+  const dataMax = Math.max(...values, 100);
+  const dataMin = Math.min(...values, 100);
+  const axisMin = Math.max(0, Math.floor((dataMin - 3) / 5) * 5);
+  const axisMax = Math.max(axisMin + 5, Math.ceil(dataMax / 5) * 5);
+  const range = axisMax - axisMin;
+  const tickValues = Array.from(
+    { length: 5 },
+    (_, index) => axisMin + (range * index) / 4
+  );
+  const labelInterval = Math.max(1, Math.ceil(items.length / 7));
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const getX = (index) =>
     padding.left + (index / Math.max(items.length - 1, 1)) * plotWidth;
   const getY = (value) =>
-    padding.top + plotHeight - ((value - minValue) / range) * plotHeight;
+    padding.top + plotHeight - ((Number(value) - axisMin) / range) * plotHeight;
   const path = items
-    .map((item, index) => `${index === 0 ? "M" : "L"} ${getX(index)} ${getY(item.value)}`)
+    .map(
+      (item, index) =>
+        `${index === 0 ? "M" : "L"} ${getX(index)} ${getY(item.value)}`
+    )
     .join(" ");
 
   return (
-    <ChartSvg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="设备在线率趋势">
-      {[0, 0.33, 0.66, 1].map((step) => {
-        const y = padding.top + plotHeight - step * plotHeight;
-        return <GridLine key={step} x1={padding.left} x2={width - padding.right} y1={y} y2={y} />;
-      })}
-      <ChartPath d={path} stroke={chartColors.blue} />
-      {items.map((item, index) => (
-        <Point key={item.label} cx={getX(index)} cy={getY(item.value)} fill={chartColors.blue} />
-      ))}
-      {items.map((item, index) => (
-        <AxisLabel key={item.label} x={getX(index)} y={height - 5}>
-          {item.label}
-        </AxisLabel>
-      ))}
-    </ChartSvg>
+    <LineChartBox>
+      <ChartSvg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="设备在线率趋势"
+      >
+        <AxisUnit x="3" y="10">
+          %
+        </AxisUnit>
+        {tickValues.map((value) => {
+          const y = getY(value);
+          return (
+            <React.Fragment key={value}>
+              <GridLine
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={y}
+                y2={y}
+              />
+              <YAxisLabel x={padding.left - 7} y={y + 3}>
+                {Math.round(value)}
+              </YAxisLabel>
+            </React.Fragment>
+          );
+        })}
+        <AxisLine
+          x1={padding.left}
+          x2={padding.left}
+          y1={padding.top}
+          y2={height - padding.bottom}
+        />
+        <AxisLine
+          x1={padding.left}
+          x2={width - padding.right}
+          y1={height - padding.bottom}
+          y2={height - padding.bottom}
+        />
+        <ChartPath d={path} stroke={chartColors.blue} />
+        {items.map((item, index) => (
+          <Point
+            key={item.label}
+            cx={getX(index)}
+            cy={getY(item.value)}
+            fill={chartColors.blue}
+          />
+        ))}
+        {items.map((item, index) => (
+          <AxisLabel key={item.label} x={getX(index)} y={height - 5}>
+            {index % labelInterval === 0 || index === items.length - 1
+              ? item.label
+              : ""}
+          </AxisLabel>
+        ))}
+      </ChartSvg>
+    </LineChartBox>
   );
 }
 
@@ -249,7 +352,14 @@ function DonutChart({ total, items, centerLabel }) {
   return (
     <DonutLayout>
       <DonutSvg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx="64" cy="64" r={radius} fill="none" stroke="hsl(220 13% 91%)" strokeWidth="18" />
+        <circle
+          cx="64"
+          cy="64"
+          r={radius}
+          fill="none"
+          stroke="hsl(220 13% 91%)"
+          strokeWidth="18"
+        />
         {items.map((item, index) => {
           const length = total ? (item.count / total) * circumference : 0;
           const dashOffset = -offset;
@@ -327,6 +437,11 @@ function HeatMap({ items }) {
 function TopTable({ columns, rows, progressKey }) {
   return (
     <TopTableWrap>
+      <colgroup>
+        {columns.map((column) => (
+          <col key={column.key} style={{ width: column.width }} />
+        ))}
+      </colgroup>
       <thead>
         <tr>
           {columns.map((column) => (
@@ -338,7 +453,7 @@ function TopTable({ columns, rows, progressKey }) {
         {rows.map((row) => (
           <tr key={`${row.rank}-${row.name}`}>
             {columns.map((column) => (
-              <td key={column.key}>
+              <td key={column.key} title={String(row[column.key] ?? "")}>
                 {column.key === progressKey ? (
                   <ProgressCell>
                     <span>{row[column.key]}%</span>
@@ -362,6 +477,10 @@ function StatisticsAnalysis() {
   const [data, setData] = useState(defaultData);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [rangeMode, setRangeMode] = useState("7");
+  const [startDate, setStartDate] = useState(initialStartDate);
+  const [endDate, setEndDate] = useState(initialEndDate);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -370,7 +489,18 @@ function StatisticsAnalysis() {
       try {
         setIsLoading(true);
         setHasError(false);
-        const response = await fetch(`${API_BASE_URL}/statistics/overview`);
+        const params = new URLSearchParams();
+
+        if (rangeMode === "custom") {
+          params.set("start_date", startDate);
+          params.set("end_date", endDate);
+        } else {
+          params.set("days", rangeMode);
+        }
+
+        const response = await fetch(
+          `${API_BASE_URL}/statistics/overview?${params.toString()}`
+        );
 
         if (!response.ok) {
           throw new Error("Failed to load statistics overview");
@@ -397,12 +527,30 @@ function StatisticsAnalysis() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [endDate, rangeMode, refreshKey, startDate]);
+
+  function selectPreset(days) {
+    setRangeMode(String(days));
+    setEndDate(initialEndDate);
+    setStartDate(shiftDate(initialEndDate, 1 - days));
+  }
+
+  function handleStartDateChange(value) {
+    setRangeMode("custom");
+    setStartDate(value);
+    if (value > endDate) setEndDate(value);
+  }
+
+  function handleEndDateChange(value) {
+    setRangeMode("custom");
+    setEndDate(value);
+    if (value < startDate) setStartDate(value);
+  }
 
   const alarmSpark = normalizeSeries(data.alarm_trend, "general");
   const personSpark = data.person_distribution.map((item) => item.count);
   const deviceSpark = data.device_online_trend.map((item) => item.value);
-  const alarmTotal = data.metrics.alarm_count;
+  const alarmTotal = data.range?.alarm_count ?? data.metrics.alarm_count;
   const deviceTotal = data.metrics.device_count;
 
   return (
@@ -435,23 +583,61 @@ function StatisticsAnalysis() {
                 </MetricValue>
                 <MetricDelta>较昨日 ↓ {card.delta}</MetricDelta>
               </MetricText>
-              <Sparkline values={sparkValues.length ? sparkValues : [1, 2, 1, 3, 2, 4, 3]} color={card.color} />
+              <MiniAreaSparkline
+                values={
+                  sparkValues.length ? sparkValues : [1, 2, 1, 3, 2, 4, 3]
+                }
+                color={card.color}
+              />
             </MetricCard>
           );
         })}
       </MetricGrid>
 
       <Toolbar>
-        <FilterButton $active>近7天</FilterButton>
-        <FilterButton>近30天</FilterButton>
-        <DateRange>
+        <FilterButton
+          type="button"
+          $active={rangeMode === "7"}
+          aria-pressed={rangeMode === "7"}
+          onClick={() => selectPreset(7)}
+        >
+          近7天
+        </FilterButton>
+        <FilterButton
+          type="button"
+          $active={rangeMode === "30"}
+          aria-pressed={rangeMode === "30"}
+          onClick={() => selectPreset(30)}
+        >
+          近30天
+        </FilterButton>
+        <DateRange $active={rangeMode === "custom"}>
           <CalendarDays size={14} />
-          2025-06-24
+          <DateInput
+            type="date"
+            aria-label="开始日期"
+            value={startDate}
+            max={endDate}
+            onFocus={() => setRangeMode("custom")}
+            onChange={(event) => handleStartDateChange(event.target.value)}
+          />
           <span>→</span>
-          2025-06-30
+          <DateInput
+            type="date"
+            aria-label="结束日期"
+            value={endDate}
+            min={startDate}
+            max={initialEndDate}
+            onFocus={() => setRangeMode("custom")}
+            onChange={(event) => handleEndDateChange(event.target.value)}
+          />
         </DateRange>
-        <RefreshButton type="button">
-          <RefreshCw size={14} />
+        <RefreshButton
+          type="button"
+          disabled={isLoading}
+          onClick={() => setRefreshKey((value) => value + 1)}
+        >
+          <RefreshCw size={14} className={isLoading ? "is-spinning" : ""} />
           刷新
         </RefreshButton>
       </Toolbar>
@@ -471,11 +657,19 @@ function StatisticsAnalysis() {
         </Panel>
         <Panel $area="alarmType">
           <PanelTitle>告警类型占比</PanelTitle>
-          <DonutChart total={alarmTotal} items={data.alarm_type_distribution} centerLabel="总告警数" />
+          <DonutChart
+            total={alarmTotal}
+            items={data.alarm_type_distribution}
+            centerLabel="总告警数"
+          />
         </Panel>
         <Panel $area="risk">
           <PanelTitle>风险等级占比</PanelTitle>
-          <DonutChart total={data.metrics.risk_area_count} items={data.risk_level_distribution} centerLabel="风险区域" />
+          <DonutChart
+            total={data.metrics.risk_area_count}
+            items={data.risk_level_distribution}
+            centerLabel="风险区域"
+          />
         </Panel>
         <Panel $area="heat">
           <PanelTitle>风险区域热力</PanelTitle>
@@ -483,17 +677,26 @@ function StatisticsAnalysis() {
         </Panel>
         <Panel $area="duration">
           <PanelTitle>告警处理时长分布（小时）</PanelTitle>
-          <DonutChart total={alarmTotal} items={data.alarm_duration_distribution.map((item) => ({ ...item, ratio: alarmTotal ? Math.round((item.count / alarmTotal) * 1000) / 10 : 0 }))} centerLabel="总告警数" />
+          <DonutChart
+            total={alarmTotal}
+            items={data.alarm_duration_distribution.map((item) => ({
+              ...item,
+              ratio: alarmTotal
+                ? Math.round((item.count / alarmTotal) * 1000) / 10
+                : 0,
+            }))}
+            centerLabel="总告警数"
+          />
         </Panel>
         <Panel $area="topDevice">
           <PanelTitle>风险设备 TOP5</PanelTitle>
           <TopTable
             columns={[
-              { key: "rank", label: "排名" },
-              { key: "name", label: "设备名称" },
-              { key: "risk_level", label: "风险等级" },
-              { key: "alarm_count", label: "告警次数" },
-              { key: "area_name", label: "所属区域" },
+              { key: "rank", label: "排名", width: "10%" },
+              { key: "name", label: "设备名称", width: "27%" },
+              { key: "risk_level", label: "风险等级", width: "18%" },
+              { key: "alarm_count", label: "告警次数", width: "17%" },
+              { key: "area_name", label: "所属区域", width: "28%" },
             ]}
             rows={data.top_devices}
           />
@@ -502,10 +705,10 @@ function StatisticsAnalysis() {
           <PanelTitle>区域告警 TOP5</PanelTitle>
           <TopTable
             columns={[
-              { key: "rank", label: "排名" },
-              { key: "name", label: "区域名称" },
-              { key: "alarm_count", label: "告警次数" },
-              { key: "ratio", label: "占比" },
+              { key: "rank", label: "排名", width: "10%" },
+              { key: "name", label: "区域名称", width: "38%" },
+              { key: "alarm_count", label: "告警次数", width: "22%" },
+              { key: "ratio", label: "占比", width: "30%" },
             ]}
             rows={data.top_areas}
             progressKey="ratio"
@@ -515,17 +718,21 @@ function StatisticsAnalysis() {
           <PanelTitle>人员告警 TOP5</PanelTitle>
           <TopTable
             columns={[
-              { key: "rank", label: "排名" },
-              { key: "name", label: "人员姓名" },
-              { key: "alarm_count", label: "告警次数" },
-              { key: "department", label: "所属部门" },
+              { key: "rank", label: "排名", width: "10%" },
+              { key: "name", label: "人员姓名", width: "30%" },
+              { key: "alarm_count", label: "告警次数", width: "22%" },
+              { key: "department", label: "所属部门", width: "38%" },
             ]}
             rows={data.top_people}
           />
         </Panel>
         <Panel $area="deviceType">
           <PanelTitle>设备类型统计</PanelTitle>
-          <DonutChart total={deviceTotal} items={data.device_type_distribution} centerLabel="总设备数" />
+          <DonutChart
+            total={deviceTotal}
+            items={data.device_type_distribution}
+            centerLabel="总设备数"
+          />
         </Panel>
       </DashboardGrid>
     </Wrapper>
@@ -534,12 +741,20 @@ function StatisticsAnalysis() {
 
 const Wrapper = styled.div`
   box-sizing: border-box;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 16px 18px;
+  grid-template-rows: auto 104px 30px minmax(0, 1fr);
+  gap: 8px;
+  overflow: hidden;
+  padding: 10px 14px 18px;
   background: hsl(216 26% 97%);
+
+  @media (max-height: 700px) {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
 `;
 
 const HeaderRow = styled.div`
@@ -561,15 +776,21 @@ const MetricGrid = styled.div`
 
 const MetricCard = styled.article`
   min-width: 0;
-  height: 112px;
+  height: 104px;
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 34px;
-  gap: 6px 12px;
+  grid-template-rows: minmax(0, 1fr) 27px;
+  gap: 3px 10px;
   border: 1px solid hsl(220 13% 88%);
   border-radius: 8px;
-  padding: 14px;
+  padding: 9px 12px 7px;
   background: white;
+
+  > svg {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    height: 27px;
+  }
 `;
 
 const MetricIcon = styled.div`
@@ -590,6 +811,7 @@ const MetricTitle = styled.div`
   color: hsl(218 10% 34%);
   font-size: ${FONT_SIZES.dashboardMetricTitle};
   font-weight: 700;
+  line-height: 1.1;
 `;
 
 const MetricValue = styled.div`
@@ -598,6 +820,7 @@ const MetricValue = styled.div`
   font-family: var(--font-data);
   font-size: ${FONT_SIZES.dashboardMetricValue};
   font-weight: 800;
+  line-height: 1;
 
   span {
     margin-left: 4px;
@@ -608,22 +831,11 @@ const MetricValue = styled.div`
 `;
 
 const MetricDelta = styled.div`
-  margin-top: 4px;
+  margin-top: 2px;
   color: hsl(164 72% 38%);
   font-size: ${FONT_SIZES.dashboardMetricMeta};
   font-weight: 700;
-`;
-
-const SparkSvg = styled.svg`
-  grid-column: 1 / -1;
-  width: 100%;
-  height: 34px;
-
-  polyline {
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
+  line-height: 1;
 `;
 
 const Toolbar = styled.div`
@@ -648,12 +860,31 @@ const DateRange = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid hsl(220 13% 86%);
+  border: 1px solid
+    ${(p) => (p.$active ? chartColors.blue : "hsl(220 13% 86%)")};
   border-radius: 6px;
   padding: 0 12px;
-  color: hsl(218 10% 38%);
-  background: white;
+  color: ${(p) => (p.$active ? chartColors.blue : "hsl(218 10% 38%)")};
+  background: ${(p) => (p.$active ? "hsl(217 93% 52% / 0.06)" : "white")};
   font-size: ${FONT_SIZES.dashboardFilter};
+`;
+
+const DateInput = styled.input`
+  width: 104px;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-family: var(--font-data);
+  cursor: pointer;
+
+  &::-webkit-calendar-picker-indicator {
+    opacity: 0.6;
+    cursor: pointer;
+  }
 `;
 
 const RefreshButton = styled.button`
@@ -668,25 +899,50 @@ const RefreshButton = styled.button`
   background: white;
   font-size: ${FONT_SIZES.dashboardFilter};
   font-weight: 700;
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.68;
+  }
+
+  .is-spinning {
+    animation: refresh-spin 0.8s linear infinite;
+  }
+
+  @keyframes refresh-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
 `;
 
 const DashboardGrid = styled.div`
+  height: 100%;
   min-height: 0;
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-auto-rows: 182px;
-  gap: 10px;
+  grid-template-rows:
+    minmax(166px, 1.04fr)
+    minmax(150px, 0.94fr)
+    minmax(166px, 1fr);
+  grid-auto-flow: row;
+  grid-auto-rows: minmax(166px, 1fr);
+  gap: 8px;
+
+  @media (max-height: 700px) {
+    grid-template-rows: 166px 150px 166px;
+  }
 `;
 
 const Panel = styled.section`
   min-width: 0;
   min-height: 0;
-  grid-area: ${(p) => p.$area};
+  overflow: hidden;
   border: 1px solid hsl(220 13% 88%);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-  padding: 12px 14px;
+  padding: 9px 11px;
   background: white;
 
   ${(p) =>
@@ -695,8 +951,8 @@ const Panel = styled.section`
       people: "grid-column: span 4;",
       online: "grid-column: span 4;",
       alarmType: "grid-column: span 3;",
-      risk: "grid-column: span 2;",
-      heat: "grid-column: span 4;",
+      risk: "grid-column: span 3;",
+      heat: "grid-column: span 3;",
       duration: "grid-column: span 3;",
       topDevice: "grid-column: span 3;",
       topArea: "grid-column: span 3;",
@@ -715,6 +971,14 @@ const PanelTitle = styled.h2`
 const ChartBox = styled.div`
   min-height: 0;
   flex: 1;
+  display: grid;
+  grid-template-rows: 18px minmax(0, 1fr);
+`;
+
+const LineChartBox = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: flex;
 `;
 
 const ChartLegend = styled.div`
@@ -755,6 +1019,11 @@ const GridLine = styled.line`
   stroke-dasharray: 4 5;
 `;
 
+const AxisLine = styled.line`
+  stroke: hsl(218 12% 72%);
+  stroke-width: 1;
+`;
+
 const ChartPath = styled.path`
   fill: none;
   stroke-width: 2.2;
@@ -773,6 +1042,16 @@ const AxisLabel = styled.text`
   text-anchor: middle;
 `;
 
+const YAxisLabel = styled(AxisLabel)`
+  text-anchor: end;
+`;
+
+const AxisUnit = styled.text`
+  fill: hsl(218 10% 45%);
+  font-size: ${FONT_SIZES.dashboardAxis};
+  font-family: var(--font-data);
+`;
+
 const BarChartWrap = styled.div`
   flex: 1;
   min-height: 0;
@@ -780,27 +1059,41 @@ const BarChartWrap = styled.div`
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
-  padding-top: 18px;
+  padding-top: 8px;
 `;
 
 const BarItem = styled.div`
   min-width: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: 18px minmax(0, 1fr) 18px;
+  grid-template-rows: minmax(0, 1fr) 18px;
   justify-items: center;
   gap: 4px;
 `;
 
+const BarBody = styled.div`
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+`;
+
 const BarValue = styled.div`
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 3px);
   color: hsl(218 10% 35%);
   font-family: var(--font-data);
   font-size: ${FONT_SIZES.dashboardAxis};
+  line-height: 1;
+  transform: translateX(-50%);
 `;
 
 const BarColumn = styled.div`
+  position: relative;
   width: 26px;
-  align-self: end;
   height: ${(p) => `${Math.max(p.$height, 4)}%`};
   border-radius: 4px 4px 0 0;
   background: linear-gradient(180deg, hsl(217 93% 64%), hsl(217 93% 52%));
@@ -819,13 +1112,15 @@ const DonutLayout = styled.div`
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
+  grid-template-columns: 116px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 7px;
 `;
 
 const DonutSvg = styled.svg`
   display: block;
+  width: 112px;
+  height: 112px;
 
   text:first-of-type {
     fill: ${COLORS.gray10};
@@ -843,15 +1138,15 @@ const DonutSvg = styled.svg`
 const DonutLegend = styled.div`
   min-width: 0;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 `;
 
 const DonutLegendItem = styled.div`
   min-width: 0;
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) 42px 42px;
+  grid-template-columns: 8px minmax(60px, 120px) 34px 38px;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   color: hsl(218 10% 42%);
   font-size: ${FONT_SIZES.dashboardLegendLabel};
 
@@ -867,6 +1162,7 @@ const DonutLegendItem = styled.div`
     font-family: var(--font-data);
     font-style: normal;
     font-weight: 600;
+    text-align: right;
   }
 `;
 
@@ -890,10 +1186,8 @@ const HeatMapCanvas = styled.div`
   position: relative;
   overflow: hidden;
   border-radius: 6px;
-  background:
-    linear-gradient(90deg, hsl(210 36% 91%) 1px, transparent 1px),
-    linear-gradient(hsl(210 36% 91%) 1px, transparent 1px),
-    hsl(205 42% 95%);
+  background: linear-gradient(90deg, hsl(210 36% 91%) 1px, transparent 1px),
+    linear-gradient(hsl(210 36% 91%) 1px, transparent 1px), hsl(205 42% 95%);
   background-size: 42px 42px;
 `;
 
@@ -908,7 +1202,12 @@ const HeatSpot = styled.div`
   place-items: center;
   color: hsl(218 20% 26%);
   font-size: ${FONT_SIZES.dashboardAxis};
-  background: radial-gradient(circle, hsl(0 92% 60% / 0.82), hsl(48 96% 55% / 0.62), transparent 68%);
+  background: radial-gradient(
+    circle,
+    hsl(0 92% 60% / 0.82),
+    hsl(48 96% 55% / 0.62),
+    transparent 68%
+  );
   transform: translate(-50%, -50%);
 `;
 
@@ -928,17 +1227,20 @@ const HeatScale = styled.div`
 
 const TopTableWrap = styled.table`
   width: 100%;
-  margin-top: 8px;
+  margin-top: 5px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: ${FONT_SIZES.dashboardAxis};
 
   th,
   td {
-    height: 26px;
+    height: 24px;
     border-bottom: 1px solid hsl(220 13% 91%);
-    padding: 0 8px;
+    padding: 0 3px;
     color: hsl(218 15% 24%);
+    overflow: hidden;
     text-align: left;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 

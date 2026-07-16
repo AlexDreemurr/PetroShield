@@ -144,8 +144,7 @@ function LeftBar() {
 
 const Wrapper = styled.div`
   width: ${(p) => (p.$isCollapsed ? "4rem" : "10rem")};
-  padding: 16px 8px 0 8px;
-  margin-bottom: 16px;
+  padding: 16px 8px 16px 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -224,7 +223,7 @@ const DrawerTrigger = styled.button`
     p.$isOpen && !p.$isCollapsed
       ? COLORS.blue
       : p.$isCollapsed && p.$isActiveGroup
-        ? "white"
+      ? "white"
       : "inherit"};
   text-align: left;
 

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import styled from "styled-components";
 import BaiduSatelliteMap from "../components/BaiduSatelliteMap/BaiduSatelliteMap";
 import Icon from "../components/Icon/Icon";
+import MiniAreaSparkline from "../components/MiniAreaSparkline/MiniAreaSparkline";
 import { API_BASE_URL } from "../config/api";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
 
@@ -161,6 +162,38 @@ function formatTrendBucket(value, granularity) {
   return granularity === "week" ? `${day}周` : day;
 }
 
+function getShanghaiBucketParts(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return { day: "", hour: "" };
+  }
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Asia/Shanghai",
+  }).formatToParts(date);
+
+  return {
+    day: parts.find((part) => part.type === "day")?.value ?? "",
+    hour: parts.find((part) => part.type === "hour")?.value ?? "",
+  };
+}
+
+function buildHourlyDayBoundaries(items) {
+  return items.flatMap((item, index) => {
+    if (index === 0) return [];
+    const current = getShanghaiBucketParts(item.bucket_start ?? item.date);
+    if (current.hour !== "00") return [];
+    const previous = getShanghaiBucketParts(
+      items[index - 1].bucket_start ?? items[index - 1].date
+    );
+    return [{ index, previousDay: previous.day, currentDay: current.day }];
+  });
+}
+
 function buildAlarmTrendLines(items) {
   return [
     {
@@ -188,6 +221,7 @@ function Card({
   icon,
   tone,
   comparison,
+  sparkValues,
   isLoading,
   hasError,
 }) {
@@ -214,6 +248,10 @@ function Card({
         </MetricDelta>
         <MetricLabel>{hasError ? "数据获取失败" : "较昨日"}</MetricLabel>
       </MetricFooter>
+      <MiniAreaSparkline
+        values={sparkValues}
+        color={(toneColors[tone] ?? toneColors.gray).text}
+      />
     </CardWrapper>
   );
 }
@@ -507,12 +545,17 @@ function buildSmoothPath(points) {
   }, `M ${points[0].x},${points[0].y}`);
 }
 
-function MultiLineChart({ lines }) {
+function MultiLineChart({ lines, dayBoundaries = [] }) {
   const [hoveredPoint, setHoveredPoint] = useState(null);
   const svgRef = useRef(null);
   const [chartSize, setChartSize] = useState({ width: 420, height: 150 });
   const { width, height } = chartSize;
-  const padding = { top: 8, right: 8, bottom: 6, left: 30 };
+  const padding = {
+    top: dayBoundaries.length > 0 ? 20 : 8,
+    right: 8,
+    bottom: 6,
+    left: 30,
+  };
   const allValues = lines.flatMap((line) => line.values);
   const maxValue = Math.max(...allValues, 0);
   const tickStep = Math.max(1, Math.ceil(maxValue / 4));
@@ -590,6 +633,25 @@ function MultiLineChart({ lines }) {
         y1={padding.top}
         y2={height - padding.bottom}
       />
+      {dayBoundaries.map((boundary) => {
+        const x = getX(boundary.index, lines[0]?.values.length ?? 0);
+        return (
+          <React.Fragment key={`${boundary.index}-${boundary.currentDay}`}>
+            <DayDivider
+              x1={x}
+              x2={x}
+              y1={14}
+              y2={height - padding.bottom}
+            />
+            <DayBoundaryLabel x={x - 4} y="10" textAnchor="end">
+              {boundary.previousDay}日
+            </DayBoundaryLabel>
+            <DayBoundaryLabel x={x + 4} y="10" textAnchor="start">
+              {boundary.currentDay}日
+            </DayBoundaryLabel>
+          </React.Fragment>
+        );
+      })}
       {lines.map((line) => {
         const points = line.values.map((value, index) => ({
           x: getX(index, line.values.length),
@@ -764,10 +826,22 @@ function AlarmTrendCard({
   onGranularityChange,
 }) {
   const lines = buildAlarmTrendLines(items);
-  const days = items.map((item) =>
-    formatTrendBucket(item.bucket_start ?? item.date, granularity)
-  );
-  const labelInterval = Math.max(1, Math.ceil(days.length / 7));
+  const days = items.map((item) => {
+    const value = item.bucket_start ?? item.date;
+    return granularity === "hour"
+      ? `${getShanghaiBucketParts(value).hour}时`
+      : formatTrendBucket(value, granularity);
+  });
+  const dayBoundaries =
+    granularity === "hour" ? buildHourlyDayBoundaries(items) : [];
+  const labelInterval =
+    granularity === "hour"
+      ? items.length <= 24
+        ? 2
+        : items.length <= 72
+          ? 6
+          : 24
+      : Math.max(1, Math.ceil(days.length / 7));
   const statusMessage = isLoading
     ? "告警趋势加载中..."
     : hasError
@@ -815,7 +889,7 @@ function AlarmTrendCard({
           {statusMessage ? (
             <ChartStatusMessage>{statusMessage}</ChartStatusMessage>
           ) : (
-            <MultiLineChart lines={lines} />
+            <MultiLineChart lines={lines} dayBoundaries={dayBoundaries} />
           )}
         </ChartCanvas>
         <AlarmChartAxis $count={Math.max(days.length, 1)}>
@@ -993,6 +1067,7 @@ function DeviceOnlineTrendCard({
       }
     >
       <DeviceChartPanelBody>
+        <ChartLegendSpacer aria-hidden="true" />
         <ChartCanvas>
           {statusMessage ? <ChartStatusMessage>{statusMessage}</ChartStatusMessage> : <DeviceOnlineRateChart items={items} />}
         </ChartCanvas>
@@ -1030,6 +1105,36 @@ function Dashboard() {
   const [isDeviceOnlineTrendLoading, setIsDeviceOnlineTrendLoading] = useState(true);
   const [deviceOnlineTrendRangeDays, setDeviceOnlineTrendRangeDays] = useState(7);
   const [deviceOnlineTrendGranularity, setDeviceOnlineTrendGranularity] = useState("day");
+
+  const metricSparkSeries = useMemo(() => {
+    const alarmTotals = alarmTrend.map(
+      (item) =>
+        Number(item.major ?? 0) +
+        Number(item.severe ?? 0) +
+        Number(item.general ?? 0)
+    );
+    const riskTotals = alarmTrend.map(
+      (item) => Number(item.major ?? 0) + Number(item.severe ?? 0)
+    );
+    const healthByBucket = new Map();
+
+    for (const item of personHealthAnalysis?.items ?? []) {
+      const bucket = item.bucket_start ?? item.bucket;
+      healthByBucket.set(
+        bucket,
+        (healthByBucket.get(bucket) ?? 0) + Number(item.observed_people ?? 0)
+      );
+    }
+
+    return {
+      online_person_count: [...healthByBucket.values()],
+      device_online_rate: deviceOnlineTrend.map((item) =>
+        Number(item.online_rate ?? item.value ?? 0)
+      ),
+      today_alarm_count: alarmTotals,
+      risk_area_count: riskTotals,
+    };
+  }, [alarmTrend, deviceOnlineTrend, personHealthAnalysis]);
 
   useEffect(() => {
     let ignore = false;
@@ -1219,12 +1324,17 @@ function Dashboard() {
   return (
     <Wrapper>
       <CardGrid>
-        {metricCards.map((card) => (
+        {metricCards.map(({ key, ...card }) => (
           <Card
-            key={card.key}
+            key={key}
             {...card}
-            value={metrics?.[card.key]}
-            comparison={metrics?.metric_comparisons?.[card.key]}
+            value={metrics?.[key]}
+            comparison={metrics?.metric_comparisons?.[key]}
+            sparkValues={
+              metricSparkSeries[key]?.length
+                ? metricSparkSeries[key]
+                : [1, 2, 1.5, 2.8, 2.2, 3.2, 2.7]
+            }
             isLoading={isLoading}
             hasError={hasError}
           />
@@ -1297,14 +1407,14 @@ const Wrapper = styled.div`
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: 84px minmax(0, 1fr) 232px;
+  grid-template-rows: 104px minmax(0, 1fr) 212px;
   gap: 8px;
   overflow: hidden;
   background-color: hsl(0 0% 97.5%);
   padding: 8px;
 
   @media (max-height: 780px) {
-    grid-template-rows: 80px minmax(0, 1fr) 200px;
+    grid-template-rows: 100px minmax(0, 1fr) 180px;
   }
 
   @media (max-width: 1280px) {
@@ -1319,7 +1429,7 @@ const CardGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  grid-auto-rows: 84px;
+  grid-auto-rows: 104px;
 
   @media (max-width: 1180px) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1334,14 +1444,21 @@ const CardWrapper = styled.article`
   min-height: 0;
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto auto 26px;
   column-gap: 12px;
   row-gap: 0;
   align-content: center;
   border: 1px solid hsl(220 13% 90%);
   border-radius: 8px;
   background: hsl(0 0% 100%);
-  padding: 10px 18px;
+  padding: 8px 16px 6px;
+
+  > svg {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    height: 26px;
+    margin-top: 2px;
+  }
 `;
 
 const CardTopLine = styled.div`
@@ -1370,7 +1487,7 @@ const IconBadge = styled.div`
   display: grid;
   place-items: center;
   color: white;
-  background: ${(p) => toneColors[p.$tone].text};
+  background: ${(p) => (toneColors[p.$tone] ?? toneColors.gray).text};
 `;
 
 const MetricLine = styled.div`
@@ -1410,7 +1527,7 @@ const MetricFooter = styled.div`
 `;
 
 const MetricDelta = styled.span`
-  color: ${(p) => toneColors[p.$tone].text};
+  color: ${(p) => (toneColors[p.$tone] ?? toneColors.gray).text};
   font-family: var(--font-data);
   font-weight: 700;
 `;
@@ -1713,8 +1830,9 @@ const AlarmIcon = styled.div`
   display: grid;
   place-items: center;
   border-radius: 100%;
-  color: ${(p) => mapToneColors[p.$tone].text};
-  background: ${(p) => mapToneColors[p.$tone].background};
+  color: ${(p) => (mapToneColors[p.$tone] ?? mapToneColors.amber).text};
+  background: ${(p) =>
+    (mapToneColors[p.$tone] ?? mapToneColors.amber).background};
 `;
 
 const AlarmContent = styled.div`
@@ -1750,8 +1868,9 @@ const AlarmLevel = styled.span`
   white-space: nowrap;
   border-radius: 5px;
   padding: 3px 7px;
-  color: ${(p) => mapToneColors[p.$tone].text};
-  background: ${(p) => mapToneColors[p.$tone].background};
+  color: ${(p) => (mapToneColors[p.$tone] ?? mapToneColors.amber).text};
+  background: ${(p) =>
+    (mapToneColors[p.$tone] ?? mapToneColors.amber).background};
   font-size: ${FONT_SIZES.dashboardAlarmBadge};
   font-weight: 700;
 `;
@@ -1832,9 +1951,13 @@ const DeviceChartPanelBody = styled.div`
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 22px;
+  grid-template-rows: 16px minmax(0, 1fr) 20px;
   row-gap: 8px;
-  padding-top: 8px;
+  padding-top: 4px;
+`;
+
+const ChartLegendSpacer = styled.div`
+  min-height: 0;
 `;
 
 const SmallFilters = styled.div`
@@ -1965,6 +2088,19 @@ const GridLine = styled.line`
   stroke: hsl(220 13% 90%);
   stroke-width: 1;
   stroke-dasharray: 4 5;
+`;
+
+const DayDivider = styled.line`
+  stroke: hsl(218 16% 62%);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+`;
+
+const DayBoundaryLabel = styled.text`
+  fill: hsl(218 10% 42%);
+  font-family: var(--font-data);
+  font-size: ${FONT_SIZES.dashboardAxis};
+  font-weight: 700;
 `;
 
 const ChartYAxis = styled.line`
@@ -2190,6 +2326,10 @@ const toneColors = {
   red: {
     text: dashboardPalette.red,
     background: dashboardPalette.softRed,
+  },
+  gray: {
+    text: "hsl(218 10% 48%)",
+    background: "hsl(218 10% 48% / 0.12)",
   },
 };
 

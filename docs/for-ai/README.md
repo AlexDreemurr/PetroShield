@@ -142,10 +142,12 @@ petroshield/
 | `/device-management` | 设备管理，已按原型实现卡片列表、筛选、动态分页和右侧设备详情抽屉；数据来自后端设备概览接口，加载中/失败/空列表均有占位状态 |
 | `/risk-control` | 风险管控，占位/原型 |
 | `/video-ai` | 视频 AI，占位/原型 |
-| `/statistics-analysis` 及其子路由 | 统计分析已按原型实现 KPI、趋势、占比、热力和 TOP 榜图表，复用 Dashboard 图表字号风格，数据来自统计概览接口 |
+| `/statistics-analysis` | 重定向到 `/statistics-analysis/risk-overview` |
+| `/statistics-analysis/risk-overview` | 风险态势总览已按原型实现 KPI、趋势、占比、热力和 TOP 榜图表，数据来自统计概览接口 |
+| `/statistics-analysis/risk-events`、`/alarm-stats`、`/person-tracks`、`/device-stats` | 各子路由保持独立占位页，不复用风险态势总览 UI |
 | `/system-management` 及其子路由 | 系统管理占位/原型 |
 
-注意：`App.jsx` 里部分子路由标题仍有历史乱码文本，不代表页面功能已完整实现。
+注意：统计分析仅“风险态势总览”已接入完整内容，其他统计子页面仍待分别实现。
 
 ## 5. Dashboard 当前实现
 
@@ -309,20 +311,26 @@ Seed 文件顺序在 `database/supabase/config.toml`：
 ```toml
 sql_paths = [
   "./seeds/seed.sql",
+  "./seeds/seed_operational_snapshots.sql",
   "./seeds/seed_person_positions.sql",
   "./seeds/seed_alarms.sql",
   "./seeds/seed_person_health.sql",
-  "./seeds/seed_device_realtime_observation.sql"
+  "./seeds/seed_device_realtime_observation.sql",
+  "./seeds/verify_seed_last_7_days.sql"
 ]
 ```
 
 当前 seed 覆盖：
 
-- `seed.sql`：基础区域、25 名人员、16 台设备、基础告警、基础位置等。
-- `seed_person_positions.sql`：按当前 `person` 集合动态生成最近 5 分钟逐秒短期轨迹。25 人时约 7,500 条 `position`，并同步 `person_position_current`。轨迹是 1 到 6 段随机折线，供人员管理地图演示。
-- `seed_alarms.sql`：相对当前日期生成告警趋势演示数据。
-- `seed_person_health.sql`：约 7 天范围的人员健康观测。
-- `seed_device_realtime_observation.sql`：约 7 天范围的设备状态观测。
+- `seed.sql`：基础区域、25 名人员、16 台设备及各类基础快照。
+- `seed_operational_snapshots.sql`：将人员活跃、培训、体检、设备心跳、维护和合规日期刷新到统一锚点日。
+- `seed_person_positions.sql`：生成 7 天半小时间隔历史轨迹，以及每人最近 5 分钟逐秒实时轨迹；25 人时实时轨迹为 7,500 条，并同步 `person_position_current`。
+- `seed_alarms.sql`：生成锚点日及前 6 天共 50 条告警。
+- `seed_person_health.sql`：生成 25 人乘 7 天，共 175 条人员健康观测。
+- `seed_device_realtime_observation.sql`：生成 16 台设备乘 7 天，共 112 条设备状态观测。
+- `verify_seed_last_7_days.sql`：校验数量、时间窗口和实时快照依赖；失败时让统一事务回滚。
+
+Windows 一键入口为 `database/run-all-seeds.cmd`，实现位于 `database/run-all-seeds.ps1`。默认读取 `backend/.env` 的数据库连接，以北京时间今天为锚点；也支持 `-AnchorDate YYYY-MM-DD`、`-Local`、`-Linked`。入口按 PostgreSQL 语法拆分 seed，再封装为一个服务器端 `DO` 命令，以兼容 Supabase CLI 不接受 prepared statement 内含多条命令的限制；整个 `DO` 原子执行。脚本只清理固定 seed ID 或 seed 标记的数据，不按日期范围删除真实记录。详细用法见 `database/README.md`。
 
 一次性 backfill：
 

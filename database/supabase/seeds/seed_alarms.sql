@@ -4,8 +4,6 @@
 -- 使用方式：可以在 Supabase SQL Editor 中单独执行，也会在本地 db reset 时于 seed.sql 后执行。
 -- 重复执行：不会产生重复记录；固定 ID 对应的记录会刷新到执行当天的最近 7 天。
 
-begin;
-
 do $$
 begin
   if (select count(*) from public.person where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$') <> 25
@@ -27,6 +25,11 @@ begin
   end if;
 end;
 $$;
+
+-- 基础 seed 会写入少量固定日期示例；统一入口只保留本文件的滚动 7 天告警。
+delete from public.alarm
+where id ~ '^alarm-00[1-6]$'
+   or evidence ->> 'seed_source' = 'seed_alarms.sql';
 
 with alarm_samples (
   id, day_offset, event_time, type, level, location, status,
@@ -174,8 +177,21 @@ with alarm_samples (
       '{"source":"uwb","offline_minutes":5}'::jsonb
     )
 ),
-current_day as (
-  select date_trunc('day', now() at time zone 'Asia/Shanghai') as day_start
+seed_clock as (
+  select
+    coalesce(
+      nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
+      (now() at time zone 'Asia/Shanghai')::date
+    ) as anchor_date
+),
+clock as (
+  select
+    anchor_date,
+    case
+      when anchor_date = (now() at time zone 'Asia/Shanghai')::date then now()
+      else (anchor_date::timestamp + time '18:00:00') at time zone 'Asia/Shanghai'
+    end as seed_now
+  from seed_clock
 )
 insert into public.alarm (
   id, type, level, location, "time", status, person_id, device_id,
@@ -186,9 +202,15 @@ select
   a.type,
   a.level,
   a.location,
-  (
-    c.day_start - make_interval(days => a.day_offset) + a.event_time
-  ) at time zone 'Asia/Shanghai',
+  case
+    when a.day_offset = 0 then least(
+      (c.anchor_date::timestamp + a.event_time) at time zone 'Asia/Shanghai',
+      c.seed_now - make_interval(secs => right(a.id, 3)::integer)
+    )
+    else (
+      c.anchor_date::timestamp - make_interval(days => a.day_offset) + a.event_time
+    ) at time zone 'Asia/Shanghai'
+  end,
   a.status,
   a.person_id,
   a.device_id,
@@ -199,7 +221,7 @@ select
     'mock_data', true
   )
 from alarm_samples a
-cross join current_day c
+cross join clock c
 on conflict (id) do update set
   type = excluded.type,
   level = excluded.level,
@@ -244,8 +266,21 @@ with generated_alarm as (
     (array['area-tank-a','area-loading-b','area-pump-c','area-office'])[((n - 21) % 4) + 1] as area_id
   from generate_series(21, 50) as n
 ),
-current_day as (
-  select date_trunc('day', now() at time zone 'Asia/Shanghai') as day_start
+seed_clock as (
+  select
+    coalesce(
+      nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
+      (now() at time zone 'Asia/Shanghai')::date
+    ) as anchor_date
+),
+clock as (
+  select
+    anchor_date,
+    case
+      when anchor_date = (now() at time zone 'Asia/Shanghai')::date then now()
+      else (anchor_date::timestamp + time '18:00:00') at time zone 'Asia/Shanghai'
+    end as seed_now
+  from seed_clock
 )
 insert into public.alarm (
   id, type, level, location, "time", status, person_id, device_id,
@@ -260,12 +295,22 @@ select
     'x', 100 + g.n * 7 % 500,
     'y', 70 + g.n * 11 % 300
   ),
-  (
-    c.day_start
-    - make_interval(days => g.day_offset)
-    + time '07:00:00'
-    + make_interval(mins => g.n * 19 % 600)
-  ) at time zone 'Asia/Shanghai',
+  case
+    when g.day_offset = 0 then least(
+      (
+        c.anchor_date::timestamp
+        + time '07:00:00'
+        + make_interval(mins => g.n * 19 % 600)
+      ) at time zone 'Asia/Shanghai',
+      c.seed_now - make_interval(secs => g.n)
+    )
+    else (
+      c.anchor_date::timestamp
+      - make_interval(days => g.day_offset)
+      + time '07:00:00'
+      + make_interval(mins => g.n * 19 % 600)
+    ) at time zone 'Asia/Shanghai'
+  end,
   g.alarm_status,
   case when g.alarm_type = '设备异常' then null else g.person_id end,
   case when g.alarm_type in ('离线', '识别异常') then null else g.device_id end,
@@ -277,7 +322,7 @@ select
     'batch', 'expanded'
   )
 from generated_alarm g
-cross join current_day c
+cross join clock c
 on conflict (id) do update set
   type = excluded.type,
   level = excluded.level,
@@ -289,8 +334,6 @@ on conflict (id) do update set
   confidence = excluded.confidence,
   description = excluded.description,
   evidence = excluded.evidence;
-
-commit;
 
 -- 执行完成后返回本批模拟数据的按日、按等级统计，便于在 SQL Editor 中核对。
 select

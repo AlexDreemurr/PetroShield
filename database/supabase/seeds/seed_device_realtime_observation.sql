@@ -1,6 +1,4 @@
 -- 16 台模拟设备最近 7 天的状态观测，共 112 条，可重复执行。
-begin;
-
 do $$
 begin
   if (select count(*) from public.device) < 16 then
@@ -10,7 +8,6 @@ end;
 $$;
 
 create temporary table seed_device_current_snapshot
-on commit drop
 as
 select * from public.device_realtime;
 
@@ -32,6 +29,22 @@ with seeded_device as (
   order by d.id
   limit 16
 ),
+seed_clock as (
+  select
+    coalesce(
+      nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
+      (now() at time zone 'Asia/Shanghai')::date
+    ) as anchor_date
+),
+clock as (
+  select
+    anchor_date,
+    case
+      when anchor_date = (now() at time zone 'Asia/Shanghai')::date then now()
+      else (anchor_date::timestamp + time '18:00:00') at time zone 'Asia/Shanghai'
+    end as seed_now
+  from seed_clock
+),
 day_offset as (
   select generate_series(0, 6) as value
 ),
@@ -40,9 +53,9 @@ observation_sample as (
     sd.*,
     day_offset.value as day_offset,
     case
-      when day_offset.value = 0 then now() - make_interval(secs => sd.device_order)
+      when day_offset.value = 0 then c.seed_now - make_interval(secs => sd.device_order)
       else (
-        date_trunc('day', now() at time zone 'Asia/Shanghai')
+        c.anchor_date::timestamp
         - make_interval(days => day_offset.value)
         + time '08:00:00'
         + make_interval(mins => sd.device_order * 20)
@@ -57,6 +70,7 @@ observation_sample as (
     end as observed_status
   from seeded_device sd
   cross join day_offset
+  cross join clock c
 )
 insert into public.device_realtime_observation (
   id, device_id, observation_time, status, battery, signal_strength,
@@ -89,7 +103,7 @@ on conflict (id) do update set
   last_heartbeat = excluded.last_heartbeat,
   health_score = excluded.health_score;
 
-commit;
+drop table seed_device_current_snapshot;
 
 select
   (observation_time at time zone 'Asia/Shanghai')::date as observation_date,
