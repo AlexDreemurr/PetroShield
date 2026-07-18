@@ -120,6 +120,7 @@ petroshield/
 │  │  ├─ seed.sql
 │  │  ├─ seed_person_positions.sql
 │  │  ├─ seed_alarms.sql
+│  │  ├─ seed_alarm_workflow.sql
 │  │  ├─ seed_person_health.sql
 │  │  └─ seed_device_realtime_observation.sql
 │  ├─ backfill_person_health_observation.sql
@@ -326,6 +327,7 @@ sql_paths = [
   "./seeds/seed_operational_snapshots.sql",
   "./seeds/seed_person_positions.sql",
   "./seeds/seed_alarms.sql",
+  "./seeds/seed_alarm_workflow.sql",
   "./seeds/seed_person_health.sql",
   "./seeds/seed_device_realtime_observation.sql",
   "./seeds/verify_seed_last_7_days.sql"
@@ -338,6 +340,7 @@ sql_paths = [
 - `seed_operational_snapshots.sql`：将人员活跃、培训、体检、设备心跳、维护和合规日期刷新到统一锚点日。
 - `seed_person_positions.sql`：生成 7 天半小时间隔历史轨迹，以及每人最近 5 分钟逐秒实时轨迹；25 人时实时轨迹为 7,500 条，并同步 `person_position_current`。
 - `seed_alarms.sql`：生成锚点日及前 6 天共 50 条告警。
+- `seed_alarm_workflow.sql`：为滚动告警补齐确认、派单、反馈、建议和操作日志。
 - `seed_person_health.sql`：生成 25 人乘 7 天，共 175 条人员健康观测。
 - `seed_device_realtime_observation.sql`：生成 16 台设备乘 7 天，共 112 条设备状态观测。
 - `verify_seed_last_7_days.sql`：校验数量、时间窗口和实时快照依赖；失败时让统一事务回滚。

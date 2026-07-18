@@ -123,7 +123,7 @@ with alarm_samples (
     (
       'alarm-trend-013', 4, time '08:18:00', '跌倒', '重大',
       '{"area_id":"area-loading-b","x":345.0,"y":180.0}'::jsonb,
-      '确认', 'person-003', 'dev-camera-b02', 0.93,
+      '待复核', 'person-003', 'dev-camera-b02', 0.93,
       'B区装卸平台检测到人员倒地并持续未起身',
       '{"images":["mock://evidence/alarm-trend-013.jpg"],"duration_seconds":18}'::jsonb
     ),
@@ -255,7 +255,7 @@ with generated_alarm as (
       when 1 then '处理中'
       when 2 then '确认'
       when 3 then '关闭'
-      else '确认'
+      else '待复核'
     end as alarm_status,
     format('person-%s', lpad((((n - 21) % 25) + 1)::text, 3, '0')) as person_id,
     (array[

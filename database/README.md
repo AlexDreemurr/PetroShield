@@ -43,6 +43,7 @@ run-all-seeds.cmd
 重复执行时，脚本只删除或更新以下模拟数据范围：
 
 - `alarm-001` 至 `alarm-006`，以及 `evidence.seed_source = seed_alarms.sql` 的告警。
+- `seed_alarm_workflow.sql` 会为滚动告警重建确认、派单、建议与审计日志。
 - `pos-001` 至 `pos-016`、`pos-seed-*`、`pos-history-seed-*` 定位。
 - `health-seed-*` 健康观测。
 - `device-status-seed-*` 设备状态观测。

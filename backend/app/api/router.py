@@ -1,6 +1,14 @@
 from fastapi import APIRouter
 
-from app.api.routes import dashboard, devices, health, people, risk_control, statistics
+from app.api.routes import (
+    alarm_center,
+    dashboard,
+    devices,
+    health,
+    people,
+    risk_control,
+    statistics,
+)
 
 api_router = APIRouter()
 
@@ -32,6 +40,12 @@ api_router.include_router(
     risk_control.router,
     prefix="/risk-control",
     tags=["风险管控"],
+)
+
+api_router.include_router(
+    alarm_center.router,
+    prefix="/alarms",
+    tags=["告警中心"],
 )
 
 api_router.include_router(
