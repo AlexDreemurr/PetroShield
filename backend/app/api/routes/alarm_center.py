@@ -344,12 +344,22 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
         "close": ({"新建", "确认", "处理中", "待复核"}, "关闭"),
     }
     allowed_statuses, next_status = transitions[payload.action]
+    required_comment_actions = {
+        "confirm",
+        "mark_false_positive",
+        "submit_feedback",
+        "review_approve",
+        "review_reject",
+        "close",
+    }
+    if payload.action in required_comment_actions and not (payload.comment or "").strip():
+        raise HTTPException(status_code=422, detail="请填写本次操作说明")
     if payload.action == "dispatch" and not payload.assignee_id:
-        raise HTTPException(status_code=422, detail="Dispatch requires an assignee")
-    if payload.action == "dispatch" and not payload.instruction:
-        raise HTTPException(status_code=422, detail="Dispatch requires an instruction")
-    if payload.action in {"submit_feedback", "review_reject"} and not payload.comment:
-        raise HTTPException(status_code=422, detail="This action requires a comment")
+        raise HTTPException(status_code=422, detail="请选择处理人员")
+    if payload.action == "dispatch" and not (payload.instruction or "").strip():
+        raise HTTPException(status_code=422, detail="请填写处置要求")
+    if payload.action == "dispatch" and not payload.due_time:
+        raise HTTPException(status_code=422, detail="请设置要求完成时间")
 
     try:
         connection = await connect_database()
@@ -363,33 +373,67 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
             if current_status not in allowed_statuses:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Action {payload.action} is not allowed from {current_status}",
+                    detail=f"告警当前状态为“{current_status}”，无法执行该操作，请刷新后重试",
                 )
 
+            action_metadata = {"evidence": payload.evidence}
             if payload.action == "confirm":
-                await connection.execute(
+                advice_id = await connection.fetchval(
                     """
                     insert into public.alarm_ai_advice (alarm_id, content)
-                    values ($1, $2);
+                    values ($1, $2)
+                    returning id;
                     """,
                     alarm_id,
                     build_ai_advice(alarm["type"], alarm["level"]),
                 )
+                action_metadata["ai_advice_id"] = advice_id
             elif payload.action == "dispatch":
-                await connection.execute(
+                due_time_is_expired = await connection.fetchval(
+                    "select $1::timestamptz <= now();", payload.due_time
+                )
+                if due_time_is_expired:
+                    raise HTTPException(
+                        status_code=422, detail="要求完成时间必须晚于当前时间"
+                    )
+                assignee = await connection.fetchrow(
+                    """
+                    select id, name, department, position
+                    from public.person
+                    where id = $1 and status <> '离线';
+                    """,
+                    payload.assignee_id,
+                )
+                if not assignee:
+                    raise HTTPException(
+                        status_code=422, detail="处理人员不存在或当前处于离线状态"
+                    )
+                assignment_id = await connection.fetchval(
                     """
                     insert into public.alarm_assignment (
                       alarm_id, assignee_id, department, priority, instruction,
                       due_time, assigned_by
-                    ) values ($1, $2, $3, $4, $5, $6, $7);
+                    ) values ($1, $2, $3, $4, $5, $6, $7)
+                    returning id;
                     """,
                     alarm_id,
                     payload.assignee_id,
-                    payload.department,
+                    payload.department or assignee["department"],
                     payload.priority,
-                    payload.instruction,
+                    payload.instruction.strip(),
                     payload.due_time,
                     payload.operator_name,
+                )
+                action_metadata.update(
+                    {
+                        "assignment_id": assignment_id,
+                        "assignee_id": assignee["id"],
+                        "assignee_name": assignee["name"],
+                        "department": payload.department or assignee["department"],
+                        "priority": payload.priority,
+                        "due_time": payload.due_time.isoformat(),
+                        "instruction": payload.instruction.strip(),
+                    }
                 )
             elif payload.action == "submit_feedback":
                 assignment_id = await connection.fetchval(
@@ -410,18 +454,29 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
                     where id = $1;
                     """,
                     assignment_id,
-                    payload.comment,
+                    payload.comment.strip(),
                     json.dumps(payload.evidence),
                 )
+                action_metadata["assignment_id"] = assignment_id
             elif payload.action == "review_reject":
                 await connection.execute(
                     """
                     update public.alarm_assignment
-                    set status = 'accepted', completed_at = null
+                    set status = 'accepted', completed_at = null,
+                        feedback = null, feedback_evidence = '[]'::jsonb
                     where id = (
                       select id from public.alarm_assignment
                       where alarm_id = $1 order by assigned_at desc limit 1
                     );
+                    """,
+                    alarm_id,
+                )
+            elif payload.action == "close":
+                await connection.execute(
+                    """
+                    update public.alarm_assignment
+                    set status = 'cancelled'
+                    where alarm_id = $1 and status in ('assigned', 'accepted');
                     """,
                     alarm_id,
                 )
@@ -444,8 +499,8 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
                 next_status,
                 payload.operator_name,
                 payload.operator_role,
-                payload.comment,
-                json.dumps({"evidence": payload.evidence}),
+                payload.comment.strip() if payload.comment else None,
+                json.dumps(action_metadata),
             )
     except HTTPException:
         raise
@@ -460,4 +515,3 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
             await connection.close()
 
     return await get_alarm_detail(alarm_id)
-
