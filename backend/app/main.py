@@ -5,15 +5,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.openapi_docs import API_DESCRIPTION, OPENAPI_TAGS, configure_openapi
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 def create_app() -> FastAPI:
     application = FastAPI(
-        title="PetroShield API",
-        description="石安盾智能安全监管系统后端 API",
-        version="0.1.0",
+        title="石安盾多源融合安全监管平台 API",
+        summary="人员、设备、风险区域与告警闭环的一体化后端接口",
+        description=API_DESCRIPTION,
+        version="1.0.0",
+        openapi_tags=OPENAPI_TAGS,
+        servers=[
+            {"url": "http://127.0.0.1:8000", "description": "本地开发环境"},
+            {"url": "https://petroshield.onrender.com", "description": "线上演示环境"},
+        ],
     )
 
     application.add_middleware(
@@ -38,6 +45,7 @@ def create_app() -> FastAPI:
         api_router,
         prefix="/api/v1",
     )
+    configure_openapi(application)
 
     return application
 
