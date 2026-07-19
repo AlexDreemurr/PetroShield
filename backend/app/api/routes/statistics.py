@@ -46,56 +46,12 @@ async def get_risk_events():
           person.id as person_id, person.name as person_name,
           person.department as person_department, person.position as person_position,
           device.id as device_id, device.name as device_name, device.type as device_type,
-          area.id as area_id, area.name as area_name,
-          assignment.id as assignment_id, assignment.assignee_id,
-          assignment.assignee_name, assignment.department as assignment_department,
-          assignment.priority, assignment.instruction, assignment.due_time,
-          assignment.status as assignment_status, assignment.assigned_by,
-          assignment.assigned_at, assignment.accepted_at, assignment.completed_at,
-          assignment.feedback, assignment.feedback_evidence,
-          advice.id as advice_id, advice.content as advice_content,
-          advice.structured_content as advice_structured_content,
-          advice.source as advice_source, advice.model as advice_model,
-          advice.generated_at as advice_generated_at,
-          advice.generation_status as advice_generation_status,
-          coalesce(logs.items, '[]'::jsonb) as action_logs
+          area.id as area_id, area.name as area_name
         from public.alarm alarm
         left join public.person person on person.id = alarm.person_id
         left join public.device device on device.id = alarm.device_id
         left join public.area area
           on area.id = coalesce(alarm.location ->> 'area_id', alarm.location ->> 'region_id')
-        left join lateral (
-          select assignment.*, assignee.name as assignee_name
-          from public.alarm_assignment assignment
-          left join public.person assignee on assignee.id = assignment.assignee_id
-          where assignment.alarm_id = alarm.id
-          order by assignment.assigned_at desc
-          limit 1
-        ) assignment on true
-        left join lateral (
-          select advice.*
-          from public.alarm_ai_advice advice
-          where advice.alarm_id = alarm.id
-          order by advice.generated_at desc
-          limit 1
-        ) advice on true
-        left join lateral (
-          select jsonb_agg(
-            jsonb_build_object(
-              'id', log.id,
-              'action', log.action,
-              'from_status', log.from_status,
-              'to_status', log.to_status,
-              'operator_name', log.operator_name,
-              'operator_role', log.operator_role,
-              'comment', log.comment,
-              'metadata', log.metadata,
-              'create_time', log.create_time
-            ) order by log.create_time asc
-          ) as items
-          from public.alarm_action_log log
-          where log.alarm_id = alarm.id
-        ) logs on true
         order by alarm."time" desc, alarm.id desc;
     """
 
@@ -105,6 +61,46 @@ async def get_risk_events():
             ssl=create_ssl_context() if should_use_ssl(database_url) else False,
         )
         rows = await connection.fetch(query)
+        workflow_tables = await connection.fetchrow(
+            """
+            select
+              to_regclass('public.alarm_assignment') is not null as has_assignments,
+              to_regclass('public.alarm_ai_advice') is not null as has_advice,
+              to_regclass('public.alarm_action_log') is not null as has_logs;
+            """
+        )
+        assignment_rows = []
+        advice_rows = []
+        log_rows = []
+        if workflow_tables["has_assignments"]:
+            assignment_rows = await connection.fetch(
+                """
+                select distinct on (assignment.alarm_id)
+                  assignment.*, person.name as assignee_name
+                from public.alarm_assignment assignment
+                left join public.person person on person.id = assignment.assignee_id
+                order by assignment.alarm_id, assignment.assigned_at desc;
+                """
+            )
+        if workflow_tables["has_advice"]:
+            advice_rows = await connection.fetch(
+                """
+                select distinct on (advice.alarm_id)
+                  advice.id, advice.alarm_id, advice.content, advice.source,
+                  advice.generated_at
+                from public.alarm_ai_advice advice
+                order by advice.alarm_id, advice.generated_at desc;
+                """
+            )
+        if workflow_tables["has_logs"]:
+            log_rows = await connection.fetch(
+                """
+                select id, alarm_id, action, from_status, to_status,
+                  operator_name, operator_role, comment, metadata, create_time
+                from public.alarm_action_log
+                order by alarm_id, create_time asc, id asc;
+                """
+            )
     except Exception as exc:
         print(f"Failed to load risk events: {type(exc).__name__}: {exc}")
         raise HTTPException(
@@ -115,9 +111,24 @@ async def get_risk_events():
         if "connection" in locals():
             await connection.close()
 
+    assignments_by_alarm = {row["alarm_id"]: row for row in assignment_rows}
+    advice_by_alarm = {row["alarm_id"]: row for row in advice_rows}
+    logs_by_alarm = {}
+    for log_row in log_rows:
+        logs_by_alarm.setdefault(log_row["alarm_id"], []).append({
+            "id": log_row["id"], "action": log_row["action"],
+            "from_status": log_row["from_status"], "to_status": log_row["to_status"],
+            "operator_name": log_row["operator_name"],
+            "operator_role": log_row["operator_role"], "comment": log_row["comment"],
+            "metadata": decode_json_value(log_row["metadata"], {}),
+            "create_time": log_row["create_time"],
+        })
+
     items = []
     for row in rows:
         location = decode_json_value(row["location"], {})
+        assignment_row = assignments_by_alarm.get(row["id"])
+        advice_row = advice_by_alarm.get(row["id"])
         subject = None
         if row["person_id"]:
             subject = {
@@ -131,26 +142,26 @@ async def get_risk_events():
             }
 
         assignment = None
-        if row["assignment_id"]:
+        if assignment_row:
             assignment = {
-                "id": row["assignment_id"], "assignee_id": row["assignee_id"],
-                "assignee_name": row["assignee_name"],
-                "department": row["assignment_department"], "priority": row["priority"],
-                "instruction": row["instruction"], "due_time": row["due_time"],
-                "status": row["assignment_status"], "assigned_by": row["assigned_by"],
-                "assigned_at": row["assigned_at"], "accepted_at": row["accepted_at"],
-                "completed_at": row["completed_at"], "feedback": row["feedback"],
-                "feedback_evidence": decode_json_value(row["feedback_evidence"], []),
+                "id": assignment_row["id"], "assignee_id": assignment_row["assignee_id"],
+                "assignee_name": assignment_row["assignee_name"],
+                "department": assignment_row["department"], "priority": assignment_row["priority"],
+                "instruction": assignment_row["instruction"], "due_time": assignment_row["due_time"],
+                "status": assignment_row["status"], "assigned_by": assignment_row["assigned_by"],
+                "assigned_at": assignment_row["assigned_at"], "accepted_at": assignment_row["accepted_at"],
+                "completed_at": assignment_row["completed_at"], "feedback": assignment_row["feedback"],
+                "feedback_evidence": decode_json_value(assignment_row["feedback_evidence"], []),
             }
 
         advice = None
-        if row["advice_id"]:
+        if advice_row:
             advice = {
-                "id": row["advice_id"], "content": row["advice_content"],
-                "structured_content": decode_json_value(row["advice_structured_content"], None),
-                "source": row["advice_source"], "model": row["advice_model"],
-                "generated_at": row["advice_generated_at"],
-                "generation_status": row["advice_generation_status"],
+                "id": advice_row["id"], "content": advice_row["content"],
+                "structured_content": None,
+                "source": advice_row["source"], "model": None,
+                "generated_at": advice_row["generated_at"],
+                "generation_status": None,
             }
 
         items.append({
@@ -161,7 +172,7 @@ async def get_risk_events():
             "location": location, "evidence": decode_json_value(row["evidence"], []),
             "area": {"id": row["area_id"], "name": row["area_name"] or location.get("area_name") or "未标注区域"},
             "subject": subject, "assignment": assignment, "advice": advice,
-            "logs": decode_json_value(row["action_logs"], []),
+            "logs": logs_by_alarm.get(row["id"], []),
         })
 
     closed_count = sum(item["status"] in {"关闭", "误报"} for item in items)
