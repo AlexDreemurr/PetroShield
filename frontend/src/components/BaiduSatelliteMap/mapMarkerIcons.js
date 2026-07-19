@@ -1,5 +1,6 @@
 function getMarkerColor(kind, status) {
   if (status === "离线") return "#94a3b8";
+  if (kind === "alarm") return "#ef4444";
   return kind === "person" ? "#1677ff" : "#10b981";
 }
 
@@ -30,7 +31,9 @@ export function createMapMarkerIcon(BMap, { kind, status, type, selected = false
   const selectedRing = selected
     ? '<circle cx="16" cy="16" r="14.5" fill="none" stroke="#facc15" stroke-width="3"/>'
     : "";
-  const shape = kind === "person"
+  const shape = kind === "alarm"
+    ? `<path d="M16 3.5a10 10 0 0 0-10 10c0 7.2 10 15 10 15s10-7.8 10-15a10 10 0 0 0-10-10Z" fill="${color}" stroke="white" stroke-width="1.5"/><path d="M16 8.5v7" stroke="white" stroke-width="2.4" stroke-linecap="round"/><circle cx="16" cy="20" r="1.5" fill="white"/>`
+    : kind === "person"
     ? `<circle cx="16" cy="16" r="11" fill="${color}" stroke="white" stroke-width="1.5"/><circle cx="16" cy="13" r="3" fill="white"/><path d="M10 23c1.5-3.4 3.8-5 6-5s4.5 1.6 6 5" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round"/>`
     : getDeviceShape(type, color);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">${selectedRing}${shape}</svg>`;

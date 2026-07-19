@@ -1,3 +1,4 @@
+import json
 import os
 import ssl
 from urllib.parse import urlsplit
@@ -6,6 +7,17 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, Query, status
 
 router = APIRouter()
+
+
+def decode_json(value, fallback):
+    if value is None:
+        return fallback
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return fallback
+    return value
 
 
 def get_database_url() -> str | None:
@@ -345,6 +357,7 @@ async def get_realtime_alarms(limit: int = Query(default=5, ge=1, le=20)):
           a.status,
           a."time",
           a.description,
+          a.location,
           p.name as person_name,
           p.department as person_department,
           p.company as person_company,
@@ -384,6 +397,7 @@ async def get_realtime_alarms(limit: int = Query(default=5, ge=1, le=20)):
                 "status": row["status"],
                 "time": row["time"].isoformat(),
                 "description": row["description"],
+                "location": decode_json(row["location"], {}),
                 "meta": build_alarm_meta(row),
                 "person_name": row["person_name"],
                 "department": row["person_department"],

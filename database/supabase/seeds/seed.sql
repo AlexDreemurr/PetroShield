@@ -155,7 +155,15 @@ with area_geometry as (
       nullif(area.center ->> 'y', '')::double precision,
       (select avg((point ->> 'y')::double precision) from jsonb_array_elements(area.polygon) point),
       220.0
-    ) as center_y
+    ) as center_y,
+    greatest(6.0, coalesce(
+      (select max((point ->> 'x')::double precision) - min((point ->> 'x')::double precision) from jsonb_array_elements(area.polygon) point),
+      area.radius * 1.4, 20.0
+    )) as span_x,
+    greatest(6.0, coalesce(
+      (select max((point ->> 'y')::double precision) - min((point ->> 'y')::double precision) from jsonb_array_elements(area.polygon) point),
+      area.radius * 1.4, 20.0
+    )) as span_y
   from public.area area
   where area.enable is not false
 ),
@@ -177,8 +185,8 @@ device_area as (
     device.id as device_id,
     area.id as area_id,
     area.name as area_name,
-    area.center_x + (((device.device_order - 1) % 3) - 1) * 3.0 as x,
-    area.center_y + ((((device.device_order - 1) / 3) % 3) - 1) * 3.0 as y
+    area.center_x + (mod(abs(hashtextextended(device.id, 701)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * area.span_x * 0.50 as x,
+    area.center_y + (mod(abs(hashtextextended(device.id, 809)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * area.span_y * 0.50 as y
   from seeded_device device
   join area_geometry area
     on area.area_order = ((device.device_order - 1) % area.area_count) + 1

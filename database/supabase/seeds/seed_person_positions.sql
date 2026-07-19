@@ -65,10 +65,10 @@ route_base as (
     person.status,
     person.risk_level,
     row_number() over (partition by destination.id order by person.id)::integer as person_order,
-    origin.center_x + (mod(abs(hashtextextended(person.id, 101)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_x * 0.10 as start_x,
-    origin.center_y + (mod(abs(hashtextextended(person.id, 211)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_y * 0.10 as start_y,
-    destination.center_x + (mod(abs(hashtextextended(person.id, 307)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_x * 0.10 as end_x,
-    destination.center_y + (mod(abs(hashtextextended(person.id, 401)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_y * 0.10 as end_y,
+    origin.center_x + (mod(abs(hashtextextended(person.id, 101)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_x * 0.50 as start_x,
+    origin.center_y + (mod(abs(hashtextextended(person.id, 211)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_y * 0.50 as start_y,
+    destination.center_x + (mod(abs(hashtextextended(person.id, 307)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_x * 0.50 as end_x,
+    destination.center_y + (mod(abs(hashtextextended(person.id, 401)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_y * 0.50 as end_y,
     case when mod(abs(hashtextextended(person.id, 503)), 2) = 0 then 0.10 else -0.10 end as bend
   from public.person person
   cross join lateral (
@@ -166,10 +166,10 @@ route_base as (
   select
     person.id person_id, person.device_type, person.status, person.risk_level,
     row_number() over (partition by destination.id order by person.id)::integer person_order,
-    origin.center_x + (mod(abs(hashtextextended(person.id, 101)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_x * 0.10 start_x,
-    origin.center_y + (mod(abs(hashtextextended(person.id, 211)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_y * 0.10 start_y,
-    destination.center_x + (mod(abs(hashtextextended(person.id, 307)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_x * 0.10 end_x,
-    destination.center_y + (mod(abs(hashtextextended(person.id, 401)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_y * 0.10 end_y,
+    origin.center_x + (mod(abs(hashtextextended(person.id, 101)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_x * 0.50 start_x,
+    origin.center_y + (mod(abs(hashtextextended(person.id, 211)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * origin.span_y * 0.50 start_y,
+    destination.center_x + (mod(abs(hashtextextended(person.id, 307)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_x * 0.50 end_x,
+    destination.center_y + (mod(abs(hashtextextended(person.id, 401)), 1000000)::double precision / 999999.0 * 2.0 - 1.0) * destination.span_y * 0.50 end_y,
     case when mod(abs(hashtextextended(person.id, 503)), 2) = 0 then 0.10 else -0.10 end bend
   from public.person person
   cross join lateral (

@@ -97,7 +97,7 @@ function addAreaLabel(BMap, map, text, coordinate, color, onClick) {
   map.addOverlay(new ClickableAreaLabel());
 }
 
-function BaiduSatelliteMap({ layers }) {
+function BaiduSatelliteMap({ layers, alarms = [] }) {
   const navigate = useNavigate();
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
@@ -243,13 +243,25 @@ function BaiduSatelliteMap({ layers }) {
       });
     }
 
+    if (layers.alarms) {
+      alarms.forEach((alarm, index) => {
+        const coordinate = getEntityCoordinate(alarm, index, alarm.location?.area_name);
+        const marker = new BMap.Marker(new BMap.Point(coordinate.lng, coordinate.lat), {
+          icon: createMapMarkerIcon(BMap, { kind: "alarm", status: alarm.level }),
+          title: alarm.title || alarm.type || "告警",
+        });
+        map.addOverlay(marker);
+        marker.addEventListener("click", () => setSelectedFeature({ kind: "alarm", item: alarm }));
+      });
+    }
+
     visibleAreas.forEach((area) => {
       const colors = MAP_AREA_COLORS[area.type] ?? MAP_AREA_COLORS.normal;
       addAreaLabel(BMap, map, area.name, getAreaCenter(area), colors.label, () => {
         setSelectedFeature({ kind: "area", item: area });
       });
     });
-  }, [layers, mapData, mapRevision, status]);
+  }, [alarms, layers, mapData, mapRevision, status]);
 
   useEffect(() => {
     if (!selectedFeature) return;
@@ -257,6 +269,7 @@ function BaiduSatelliteMap({ layers }) {
       person: "people",
       device: "devices",
       area: "areas",
+      alarm: "alarms",
     }[selectedFeature.kind];
     if (!layers[layerKey]) setSelectedFeature(null);
   }, [layers, selectedFeature]);
@@ -293,16 +306,26 @@ function BaiduSatelliteMap({ layers }) {
             action: "查看区域",
             target: `/risk-control?area_id=${encodeURIComponent(selectedItem?.id ?? "")}`,
           }
+        : selectedKind === "alarm"
+          ? {
+              eyebrow: "告警",
+              title: selectedItem?.title || selectedItem?.type,
+              lines: [selectedItem?.description, selectedItem?.meta],
+              status: `${selectedItem?.level || "一般"} · ${selectedItem?.status || "待处理"}`,
+              action: "查看告警",
+              target: `/alarm-center?alarm_id=${encodeURIComponent(selectedItem?.id ?? "")}`,
+            }
         : null;
 
   return (
     <MapWrapper data-map-fullscreen={isFullscreen}>
-      <MapCanvas ref={mapNodeRef} aria-label="厂区人员、设备与风险区域百度卫星地图" />
+      <MapCanvas ref={mapNodeRef} aria-label="厂区人员、设备、风险区域与告警百度卫星地图" />
       <MapFullscreenButton isFullscreen={isFullscreen} onChange={setIsFullscreen} />
       <MapLegend aria-label="地图图例">
         <span><i data-kind="person" />人员 {mapData.people.length}</span>
         <span><i data-kind="device" />设备 {mapData.devices.length}</span>
         <span><i data-kind="area" />区域 {mapData.areas.length}</span>
+        <span><i data-kind="alarm" />告警 {alarms.length}</span>
       </MapLegend>
       {selectedMeta && (
         <FeaturePopover role="dialog" aria-label={`${selectedMeta.eyebrow}简介`}>
@@ -344,6 +367,7 @@ const MapLegend = styled.div`
   i { width: 8px; height: 8px; border-radius: 50%; background: #1677ff; }
   i[data-kind="device"] { border-radius: 2px; background: #10b981; }
   i[data-kind="area"] { border: 2px solid #ef4444; background: #fca5a5; }
+  i[data-kind="alarm"] { border-radius: 50%; background: #ef4444; box-shadow: 0 0 0 2px #fee2e2; }
 `;
 const FeaturePopover = styled.div`
   position: absolute;

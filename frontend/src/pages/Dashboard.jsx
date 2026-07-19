@@ -129,6 +129,7 @@ function normalizeRealtimeAlarm(item) {
     [item.person_name, item.department].filter(Boolean).join(" / ");
 
   return {
+    ...item,
     id: item.id,
     title,
     meta: meta || item.device_name || item.status || "未关联对象",
@@ -452,11 +453,12 @@ function ChartPanelBody({ children }) {
   return <ChartPanelContent>{children}</ChartPanelContent>;
 }
 
-function FactoryMapCard() {
+function FactoryMapCard({ alarms }) {
   const [mapLayers, setMapLayers] = useState({
     people: true,
     devices: true,
     areas: true,
+    alarms: true,
   });
   const toggleLayer = (key) => {
     setMapLayers((current) => ({ ...current, [key]: !current[key] }));
@@ -470,10 +472,11 @@ function FactoryMapCard() {
           <TogglePill type="button" $active={mapLayers.people} aria-pressed={mapLayers.people} onClick={() => toggleLayer("people")}>人员</TogglePill>
           <TogglePill type="button" $active={mapLayers.devices} aria-pressed={mapLayers.devices} onClick={() => toggleLayer("devices")}>设备</TogglePill>
           <TogglePill type="button" $active={mapLayers.areas} aria-pressed={mapLayers.areas} onClick={() => toggleLayer("areas")}>风险区域</TogglePill>
+          <TogglePill type="button" $active={mapLayers.alarms} aria-pressed={mapLayers.alarms} onClick={() => toggleLayer("alarms")}>告警</TogglePill>
         </MapToggles>
       }
     >
-      <BaiduSatelliteMap layers={mapLayers} />
+      <BaiduSatelliteMap layers={mapLayers} alarms={alarms} />
     </DashboardSection>
   );
 }
@@ -1492,7 +1495,7 @@ function Dashboard() {
             hasError={hasError}
           />
         </DistributionStack>
-        <FactoryMapCard />
+        <FactoryMapCard alarms={realtimeAlarms} />
         <RealtimeAlarmCard
           total={metrics?.today_alarm_count}
           items={realtimeAlarms}

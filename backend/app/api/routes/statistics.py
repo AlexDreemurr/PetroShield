@@ -61,6 +61,33 @@ async def get_risk_events():
             ssl=create_ssl_context() if should_use_ssl(database_url) else False,
         )
         rows = await connection.fetch(query)
+        area_rows = await connection.fetch(
+            """
+            select id, name, type, risk_level, polygon, center, radius, rule_config
+            from public.area where enable is not false
+            order by create_time, id;
+            """
+        )
+        track_rows = await connection.fetch(
+            """
+            select alarm.id as alarm_id, track.x, track.y, track.speed,
+                   track.direction, track.confidence, track.source, track."timestamp"
+            from public.alarm alarm
+            join lateral (
+              select nearest.* from (
+                select position.x, position.y, position.speed, position.direction,
+                       position.confidence, position.source, position."timestamp"
+                from public.position position
+                where position.person_id = alarm.person_id
+                order by abs(extract(epoch from (position."timestamp" - alarm."time")))
+                limit 36
+              ) nearest
+              order by nearest."timestamp"
+            ) track on true
+            where alarm.person_id is not null
+            order by alarm.id, track."timestamp";
+            """
+        )
         workflow_tables = await connection.fetchrow(
             """
             select
@@ -123,6 +150,14 @@ async def get_risk_events():
             "metadata": decode_json_value(log_row["metadata"], {}),
             "create_time": log_row["create_time"],
         })
+    tracks_by_alarm = {}
+    for track_row in track_rows:
+        tracks_by_alarm.setdefault(track_row["alarm_id"], []).append({
+            "x": track_row["x"], "y": track_row["y"],
+            "speed": track_row["speed"], "direction": track_row["direction"],
+            "confidence": track_row["confidence"], "source": track_row["source"],
+            "timestamp": track_row["timestamp"],
+        })
 
     items = []
     for row in rows:
@@ -173,11 +208,25 @@ async def get_risk_events():
             "area": {"id": row["area_id"], "name": row["area_name"] or location.get("area_name") or "未标注区域"},
             "subject": subject, "assignment": assignment, "advice": advice,
             "logs": logs_by_alarm.get(row["id"], []),
+            "track": tracks_by_alarm.get(row["id"], []),
         })
 
     closed_count = sum(item["status"] in {"关闭", "误报"} for item in items)
     return {
         "items": items,
+        "areas": [
+            {
+                "id": area["id"], "name": area["name"],
+                "type": {"危险": "danger", "限制": "restricted", "禁入": "prohibited", "普通": "normal"}.get(area["type"], "normal"),
+                "risk_level": {"低": "low", "低风险": "low", "中": "medium", "中风险": "medium", "高": "high", "高风险": "high", "极高": "high"}.get(area["risk_level"], "low"),
+                "shape": "circle" if area["radius"] else "polygon",
+                "polygon": decode_json_value(area["polygon"], []),
+                "center": decode_json_value(area["center"], None),
+                "radius": area["radius"],
+                "rule_config": decode_json_value(area["rule_config"], {}),
+            }
+            for area in area_rows
+        ],
         "total": len(items),
         "summary": {
             "processing": sum(item["status"] in {"确认", "处理中", "待复核"} for item in items),
