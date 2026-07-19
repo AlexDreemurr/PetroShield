@@ -22,8 +22,6 @@ const LOCAL_COORDINATE_SCALE = {
   lat: 0.0000038,
 };
 
-const TURN_DIRECTION_THRESHOLD = 8;
-
 const TRACK_COLORS = {
   line: "#2563eb",
   lineGlow: "#dbeafe",
@@ -136,112 +134,6 @@ function getVisibleTrackPoints(person) {
   return track.map(toTrackCoordinate).filter(Boolean);
 }
 
-function getTrackDirectionAngle(previousPoint, nextPoint) {
-  return (
-    (Math.atan2(
-      nextPoint.lat - previousPoint.lat,
-      nextPoint.lng - previousPoint.lng
-    ) *
-      180) /
-    Math.PI
-  );
-}
-
-function getAngleDifference(angleA, angleB) {
-  const difference = Math.abs(angleA - angleB) % 360;
-
-  return difference > 180 ? 360 - difference : difference;
-}
-
-function normalizeDirection(direction) {
-  if (!Number.isFinite(direction)) {
-    return null;
-  }
-
-  return ((direction % 360) + 360) % 360;
-}
-
-function getTrackSegments(trackCoordinates) {
-  if (trackCoordinates.length <= 1) {
-    return [];
-  }
-
-  const segments = [];
-  let segmentStartIndex = 0;
-  let previousDirection =
-    normalizeDirection(trackCoordinates[0].direction) ??
-    getTrackDirectionAngle(trackCoordinates[0], trackCoordinates[1]);
-
-  for (let index = 1; index < trackCoordinates.length; index += 1) {
-    const currentDirection =
-      normalizeDirection(trackCoordinates[index].direction) ??
-      getTrackDirectionAngle(
-        trackCoordinates[index - 1],
-        trackCoordinates[index]
-      );
-    const hasTurn =
-      getAngleDifference(previousDirection, currentDirection) >
-      TURN_DIRECTION_THRESHOLD;
-
-    if (hasTurn) {
-      if (index - 1 > segmentStartIndex) {
-        segments.push({
-          startIndex: segmentStartIndex,
-          endIndex: index - 1,
-        });
-      }
-
-      segmentStartIndex = index;
-    }
-
-    previousDirection = currentDirection;
-  }
-
-  if (trackCoordinates.length - 1 > segmentStartIndex) {
-    segments.push({
-      startIndex: segmentStartIndex,
-      endIndex: trackCoordinates.length - 1,
-    });
-  }
-
-  if (segments.length > 0) {
-    return segments;
-  }
-
-  let fallbackStartIndex = 0;
-  let previousAngle = getTrackDirectionAngle(
-    trackCoordinates[0],
-    trackCoordinates[1]
-  );
-  const fallbackSegments = [];
-
-  for (let index = 2; index < trackCoordinates.length; index += 1) {
-    const currentAngle = getTrackDirectionAngle(
-      trackCoordinates[index - 1],
-      trackCoordinates[index]
-    );
-
-    if (getAngleDifference(previousAngle, currentAngle) > 25) {
-      fallbackSegments.push({
-        startIndex: fallbackStartIndex,
-        endIndex: index - 1,
-      });
-      fallbackStartIndex = index - 1;
-    }
-
-    previousAngle = currentAngle;
-  }
-
-  fallbackSegments.push({
-    startIndex: fallbackStartIndex,
-    endIndex: trackCoordinates.length - 1,
-  });
-
-  return fallbackSegments.filter(
-    (segment) => segment.endIndex > segment.startIndex
-  );
-}
-
 function createTrackPoint(BMap, coordinate) {
   return new BMap.Point(coordinate.lng, coordinate.lat);
 }
@@ -265,36 +157,31 @@ function rotateVector(vector, angle) {
   };
 }
 
-function addTrackArrowOverlay(BMap, map, startCoordinate, endCoordinate) {
+function addTrackArrowOverlay(BMap, map, previousPoint, centerPoint, nextPoint, arrowLength) {
   const vector = {
-    lng: endCoordinate.lng - startCoordinate.lng,
-    lat: endCoordinate.lat - startCoordinate.lat,
+    lng: nextPoint.lng - previousPoint.lng,
+    lat: nextPoint.lat - previousPoint.lat,
   };
-  const segmentLength = Math.hypot(vector.lng, vector.lat);
+  const tangentLength = Math.hypot(vector.lng, vector.lat);
 
-  if (segmentLength <= 0) {
+  if (tangentLength <= 0) {
     return;
   }
 
   const unit = {
-    lng: vector.lng / segmentLength,
-    lat: vector.lat / segmentLength,
+    lng: vector.lng / tangentLength,
+    lat: vector.lat / tangentLength,
   };
-  const middle = {
-    lng: (startCoordinate.lng + endCoordinate.lng) / 2,
-    lat: (startCoordinate.lat + endCoordinate.lat) / 2,
-  };
-  const arrowLength = Math.min(segmentLength * 0.28, 0.00072);
   const shaftHalfLength = arrowLength / 2;
-  const headLength = arrowLength * 0.42;
-  const headAngle = (28 * Math.PI) / 180;
+  const headLength = arrowLength * 0.48;
+  const headAngle = (36 * Math.PI) / 180;
   const tail = {
-    lng: middle.lng - unit.lng * shaftHalfLength,
-    lat: middle.lat - unit.lat * shaftHalfLength,
+    lng: centerPoint.lng - unit.lng * shaftHalfLength,
+    lat: centerPoint.lat - unit.lat * shaftHalfLength,
   };
   const tip = {
-    lng: middle.lng + unit.lng * shaftHalfLength,
-    lat: middle.lat + unit.lat * shaftHalfLength,
+    lng: centerPoint.lng + unit.lng * shaftHalfLength,
+    lat: centerPoint.lat + unit.lat * shaftHalfLength,
   };
   const leftHeadVector = rotateVector(
     {
@@ -326,22 +213,22 @@ function addTrackArrowOverlay(BMap, map, startCoordinate, endCoordinate) {
   addPolyline(BMap, map, [tail, tip], {
     ...baseOptions,
     strokeColor: TRACK_COLORS.arrowHalo,
-    strokeWeight: 8,
+    strokeWeight: 4,
   });
   addPolyline(BMap, map, [leftHead, tip, rightHead], {
     ...baseOptions,
     strokeColor: TRACK_COLORS.arrowHalo,
-    strokeWeight: 8,
+    strokeWeight: 4,
   });
   addPolyline(BMap, map, [tail, tip], {
     ...baseOptions,
     strokeColor: TRACK_COLORS.arrow,
-    strokeWeight: 4,
+    strokeWeight: 2,
   });
   addPolyline(BMap, map, [leftHead, tip, rightHead], {
     ...baseOptions,
     strokeColor: TRACK_COLORS.arrow,
-    strokeWeight: 4,
+    strokeWeight: 2,
   });
 }
 
@@ -546,32 +433,30 @@ function PeopleLocationMap({
           strokeWeight: 4,
           strokeOpacity: 0.94,
         });
-        const trackSegments = getTrackSegments(trackCoordinates);
         const startPoint = trackPoints[0];
         const endPoint = trackPoints[trackPoints.length - 1];
 
         map.addOverlay(trackHalo);
         map.addOverlay(trackLine);
 
-        trackSegments.forEach((segment, segmentIndex) => {
-          const startCoordinate = trackCoordinates[segment.startIndex];
-          const endCoordinate = trackCoordinates[segment.endIndex];
+        const lngExtent = Math.max(...trackPoints.map((point) => point.lng)) - Math.min(...trackPoints.map((point) => point.lng));
+        const latExtent = Math.max(...trackPoints.map((point) => point.lat)) - Math.min(...trackPoints.map((point) => point.lat));
+        const arrowLength = Math.min(Math.max(Math.hypot(lngExtent, latExtent) * 0.032, 0.00005), 0.00016);
+        const neighborOffset = Math.max(2, Math.floor(trackPoints.length * 0.015));
 
-          addTrackArrowOverlay(BMap, map, startCoordinate, endCoordinate);
+        [0.28, 0.52, 0.76].forEach((ratio) => {
+          const centerIndex = Math.round((trackPoints.length - 1) * ratio);
+          const previousIndex = Math.max(0, centerIndex - neighborOffset);
+          const nextIndex = Math.min(trackPoints.length - 1, centerIndex + neighborOffset);
 
-          if (segmentIndex > 0) {
-            const turnPoint = trackPoints[segment.startIndex];
-
-            map.addOverlay(
-              new BMap.Circle(turnPoint, 3.2, {
-                strokeColor: TRACK_COLORS.turn,
-                strokeWeight: 2,
-                strokeOpacity: 0.95,
-                fillColor: "#ffffff",
-                fillOpacity: 0.98,
-              })
-            );
-          }
+          addTrackArrowOverlay(
+            BMap,
+            map,
+            trackPoints[previousIndex],
+            trackPoints[centerIndex],
+            trackPoints[nextIndex],
+            arrowLength
+          );
         });
 
         map.addOverlay(

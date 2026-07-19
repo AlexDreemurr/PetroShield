@@ -24,7 +24,7 @@ import {
   XCircle,
 } from "lucide-react";
 import AlarmCenterMap from "../components/AlarmCenterMap/AlarmCenterMap";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, apiFetch } from "../config/api";
 import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
 import {
   getCachedAlarmDetail,
@@ -37,6 +37,7 @@ import {
   loadAlarmOperators,
   primeAlarmDetail,
 } from "../services/alarmCenterCache";
+import { useAuth } from "../auth/authStore";
 
 const LEVEL_TONES = {
   重大: "critical",
@@ -388,6 +389,7 @@ function ActionDialog({ action, operators, busy, onClose, onSubmit }) {
 }
 
 function AlarmCenter() {
+  const { hasPermission } = useAuth();
   const [searchParams] = useSearchParams();
   const linkedAlarmId = searchParams.get("alarm_id")?.trim() ?? "";
   const today = useMemo(() => new Date(), []);
@@ -533,7 +535,7 @@ function AlarmCenter() {
       };
       if (body.due_time) body.due_time = new Date(body.due_time).toISOString();
       else delete body.due_time;
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_BASE_URL}/alarms/${selectedId}/actions`,
         {
           method: "POST",
@@ -570,14 +572,14 @@ function AlarmCenter() {
       return (
         <>
           <SecondaryButton
-            disabled={isActionLoading}
+            disabled={isActionLoading || !hasPermission("alarms.confirm")}
             onClick={() => setDialogAction("mark_false_positive")}
           >
             <XCircle size={15} />
             标记误报
           </SecondaryButton>
           <PrimaryButton
-            disabled={isActionLoading}
+            disabled={isActionLoading || !hasPermission("alarms.confirm")}
             onClick={() => setDialogAction("confirm")}
           >
             <CheckCircle2 size={15} />
@@ -589,13 +591,13 @@ function AlarmCenter() {
       return (
         <>
           <SecondaryButton
-            disabled={isActionLoading}
+            disabled={isActionLoading || !hasPermission("alarms.close")}
             onClick={() => setDialogAction("close")}
           >
             关闭事件
           </SecondaryButton>
           <PrimaryButton
-            disabled={isActionLoading}
+            disabled={isActionLoading || !hasPermission("alarms.dispatch")}
             onClick={() => setDialogAction("dispatch")}
           >
             <Send size={15} />
@@ -606,7 +608,7 @@ function AlarmCenter() {
     if (detail.status === "处理中")
       return (
         <PrimaryButton
-          disabled={isActionLoading}
+          disabled={isActionLoading || !hasPermission("alarms.close")}
           onClick={() => setDialogAction("submit_feedback")}
         >
           <ClipboardCheck size={15} />
@@ -617,13 +619,13 @@ function AlarmCenter() {
       return (
         <>
           <SecondaryButton
-            disabled={isActionLoading}
+            disabled={isActionLoading || !hasPermission("alarms.close")}
             onClick={() => setDialogAction("review_reject")}
           >
             驳回重办
           </SecondaryButton>
           <PrimaryButton
-            disabled={isActionLoading}
+            disabled={isActionLoading || !hasPermission("alarms.close")}
             onClick={() => setDialogAction("review_approve")}
           >
             <CheckCircle2 size={15} />

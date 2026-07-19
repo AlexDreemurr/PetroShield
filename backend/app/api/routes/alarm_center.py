@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Literal
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.routes.risk_control import (
@@ -13,6 +13,7 @@ from app.api.routes.risk_control import (
     decode_json,
 )
 from app.services.deepseek_alarm_advisor import generate_alarm_advice
+from app.security import ensure_permission, get_current_user
 
 router = APIRouter()
 
@@ -438,7 +439,23 @@ async def generate_and_store_alarm_advice(
 
 
 @router.post("/{alarm_id}/actions")
-async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
+async def perform_alarm_action(
+    alarm_id: str,
+    payload: AlarmAction,
+    current_user: dict = Depends(get_current_user),
+):
+    permission_by_action = {
+        "confirm": "alarms.confirm",
+        "mark_false_positive": "alarms.confirm",
+        "dispatch": "alarms.dispatch",
+        "submit_feedback": "alarms.close",
+        "review_approve": "alarms.close",
+        "review_reject": "alarms.close",
+        "close": "alarms.close",
+    }
+    ensure_permission(current_user, permission_by_action[payload.action])
+    payload.operator_name = current_user["display_name"]
+    payload.operator_role = current_user["role"]["name"]
     transitions = {
         "confirm": ({"新建"}, "确认"),
         "mark_false_positive": ({"新建", "确认"}, "误报"),

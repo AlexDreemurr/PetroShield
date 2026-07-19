@@ -23,9 +23,10 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, apiFetch } from "../config/api";
 import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
 import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../services/pageDataCache";
+import { useAuth } from "../auth/authStore";
 
 const DEVICE_TABS = [
   { key: "all", label: "全部设备" },
@@ -346,7 +347,7 @@ function HealthRing({ value }) {
   );
 }
 
-function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating }) {
+function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, canDelete }) {
   const [activeTab, setActiveTab] = useState("detail");
   const [copiedField, setCopiedField] = useState(null);
   const healthScores = device.healthScores ?? [
@@ -576,7 +577,7 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating }) {
       </DrawerBody>
 
       <DrawerFooter>
-        <SecondaryAction type="button" onClick={onEdit} disabled={isMutating}>
+        <SecondaryAction type="button" onClick={onEdit} disabled={isMutating || !canEdit} title={!canEdit ? "当前角色无编辑权限" : undefined}>
           <Pencil size={15} />
           编辑设备
         </SecondaryAction>
@@ -584,7 +585,7 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating }) {
           <RotateCcw size={15} />
           重启设备
         </SecondaryAction>
-        <DangerAction type="button" onClick={onDelete} disabled={isMutating}>
+        <DangerAction type="button" onClick={onDelete} disabled={isMutating || !canDelete} title={!canDelete ? "当前角色无删除权限" : undefined}>
           <Trash2 size={15} />
           删除设备
         </DangerAction>
@@ -734,6 +735,7 @@ function DeviceDeleteDialog({ device, busy, error, onClose, onConfirm }) {
 }
 
 function DeviceManagement() {
+  const { hasPermission } = useAuth();
   const [searchParams] = useSearchParams();
   const initialPayload = getCachedJson(PAGE_DATA_URLS.devices);
   const initialAreaPayload = getCachedJson(PAGE_DATA_URLS.areas);
@@ -906,7 +908,7 @@ function DeviceManagement() {
     setIsMutating(true);
     setMutationError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/devices/${editDevice.id}`, {
+      const response = await apiFetch(`${API_BASE_URL}/devices/${editDevice.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -928,7 +930,7 @@ function DeviceManagement() {
     setIsMutating(true);
     setMutationError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/devices/${deleteDevice.id}`, {
+      const response = await apiFetch(`${API_BASE_URL}/devices/${deleteDevice.id}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -1150,6 +1152,8 @@ function DeviceManagement() {
             setDeleteDevice(selectedDevice);
           }}
           isMutating={isMutating}
+          canEdit={hasPermission("devices.edit")}
+          canDelete={hasPermission("devices.delete")}
         />
       ) : null}
       {editDevice ? (

@@ -2,7 +2,7 @@ import json
 from typing import Literal
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.routes.dashboard import (
@@ -10,6 +10,7 @@ from app.api.routes.dashboard import (
     get_database_url,
     should_use_ssl,
 )
+from app.security import require_permission
 
 router = APIRouter()
 
@@ -271,7 +272,7 @@ async def get_risk_control_overview():
     }
 
 
-@router.post("/areas", status_code=status.HTTP_201_CREATED)
+@router.post("/areas", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("risk.create"))])
 async def create_area(payload: AreaWrite):
     validate_geometry(payload)
     rule_config = build_rule_config(payload)
@@ -308,7 +309,7 @@ async def create_area(payload: AreaWrite):
             await connection.close()
 
 
-@router.put("/areas/{area_id}")
+@router.put("/areas/{area_id}", dependencies=[Depends(require_permission("risk.edit"))])
 async def update_area(area_id: str, payload: AreaWrite):
     validate_geometry(payload)
     rule_config = build_rule_config(payload)
@@ -359,7 +360,7 @@ async def update_area(area_id: str, payload: AreaWrite):
             await connection.close()
 
 
-@router.delete("/areas/{area_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/areas/{area_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("risk.delete"))])
 async def delete_area(area_id: str):
     try:
         connection = await connect_database()

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.routes.dashboard import (
@@ -11,6 +11,7 @@ from app.api.routes.dashboard import (
     get_database_url,
     should_use_ssl,
 )
+from app.security import require_permission
 
 router = APIRouter()
 
@@ -213,7 +214,7 @@ async def get_devices_overview():
     }
 
 
-@router.put("/{device_id}")
+@router.put("/{device_id}", dependencies=[Depends(require_permission("devices.edit"))])
 async def update_device(device_id: str, payload: DeviceUpdate):
     database_url = get_database_url()
     if not database_url:
@@ -291,7 +292,7 @@ async def update_device(device_id: str, payload: DeviceUpdate):
     return {"id": device_id, "updated": True}
 
 
-@router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("devices.delete"))])
 async def delete_device(device_id: str):
     database_url = get_database_url()
     if not database_url:

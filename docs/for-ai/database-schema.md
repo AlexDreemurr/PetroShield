@@ -5,7 +5,7 @@
 
 ## 1. 总览
 
-当前 Supabase/PostgreSQL schema 围绕石化厂安全监管场景，核心业务表共 11 张：
+当前 Supabase/PostgreSQL schema 除安全监管业务表外，还包含登录认证、角色权限和系统审计表：
 
 | 表 | 说明 |
 | --- | --- |
@@ -20,6 +20,11 @@
 | `alarm` | 告警事件 |
 | `position` | 人员短期轨迹点 |
 | `person_position_current` | 人员实时位置快照，一人最多一条 |
+| `system_user` | 平台登录账号与 bcrypt 密码哈希 |
+| `system_role` | 平台角色 |
+| `system_permission` | 细粒度权限定义 |
+| `system_role_permission` | 角色权限关联 |
+| `system_operation_log` | 登录及系统管理操作审计 |
 
 通用约定：
 

@@ -23,7 +23,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import RiskControlMap from "../components/RiskControlMap/RiskControlMap";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, apiFetch } from "../config/api";
 import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
 import {
   getCachedJson,
@@ -32,6 +32,7 @@ import {
   PAGE_DATA_URLS,
   setCachedJson,
 } from "../services/pageDataCache";
+import { useAuth } from "../auth/authStore";
 
 const AREA_TYPES = {
   danger: { label: "危险区", tone: "red" },
@@ -150,6 +151,7 @@ function MetricCard({ icon: Icon, label, value, unit, tone }) {
 }
 
 function RiskControl() {
+  const { hasPermission } = useAuth();
   const [searchParams] = useSearchParams();
   const initialPayload = getCachedJson(PAGE_DATA_URLS.areas);
   const initialAreas = (initialPayload?.items ?? []).map(normalizeApiArea);
@@ -310,7 +312,7 @@ function RiskControl() {
 
     setIsSaving(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         draft.isNew
           ? `${API_BASE_URL}/risk-control/areas`
           : `${API_BASE_URL}/risk-control/areas/${encodeURIComponent(draft.id)}`,
@@ -381,7 +383,7 @@ function RiskControl() {
 
     setIsDeleting(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_BASE_URL}/risk-control/areas/${encodeURIComponent(draft.id)}`,
         { method: "DELETE" }
       );
@@ -440,7 +442,7 @@ function RiskControl() {
               <option key={key} value={key}>{item.label}</option>
             ))}
           </TypeSelect>
-          <PrimaryButton type="button" disabled={isLoadingAreas || hasAreaLoadError} onClick={() => startDrawing("polygon")}>
+          <PrimaryButton type="button" disabled={isLoadingAreas || hasAreaLoadError || !hasPermission("risk.create")} onClick={() => startDrawing("polygon")} title={!hasPermission("risk.create") ? "当前角色无新增权限" : undefined}>
             <Plus size={15} /> 新增区域
           </PrimaryButton>
         </HeaderActions>
@@ -499,8 +501,8 @@ function RiskControl() {
             </MapHeading>
             <DrawTools>
               <ToolButton type="button" title="选择区域" disabled={isLoadingAreas || hasAreaLoadError} $active={!drawMode} onClick={() => setDrawMode(null)}><MousePointer2 size={15} /></ToolButton>
-              <ToolButton type="button" title="绘制多边形" disabled={isLoadingAreas || hasAreaLoadError} $active={drawMode === "polygon"} onClick={() => startDrawing("polygon")}><Pentagon size={15} /></ToolButton>
-              <ToolButton type="button" title="绘制圆形" disabled={isLoadingAreas || hasAreaLoadError} $active={drawMode === "circle"} onClick={() => startDrawing("circle")}><Circle size={15} /></ToolButton>
+              <ToolButton type="button" title="绘制多边形" disabled={isLoadingAreas || hasAreaLoadError || !hasPermission("risk.create")} $active={drawMode === "polygon"} onClick={() => startDrawing("polygon")}><Pentagon size={15} /></ToolButton>
+              <ToolButton type="button" title="绘制圆形" disabled={isLoadingAreas || hasAreaLoadError || !hasPermission("risk.create")} $active={drawMode === "circle"} onClick={() => startDrawing("circle")}><Circle size={15} /></ToolButton>
               {drawMode === "polygon" ? (
                 <ConfirmDrawButton
                   type="button"
@@ -623,9 +625,9 @@ function RiskControl() {
             <ConfigEmpty>{isLoadingAreas ? "区域配置加载中..." : hasAreaLoadError ? "区域配置加载失败" : "请选择或创建一个区域"}</ConfigEmpty>
           )}
           <ConfigFooter>
-            <DeleteButton type="button" onClick={() => setDeleteDialogOpen(true)} disabled={!draft || isDeleting}><Trash2 size={14} />删除区域</DeleteButton>
+            <DeleteButton type="button" onClick={() => setDeleteDialogOpen(true)} disabled={!draft || isDeleting || !hasPermission("risk.delete")}><Trash2 size={14} />删除区域</DeleteButton>
             <ResetButton type="button" onClick={() => setDraft(selectedArea)} disabled={!draft}><RotateCcw size={14} />重置</ResetButton>
-            <SaveButton type="button" onClick={saveDraft} disabled={!draft || isSaving}><Save size={14} />{isSaving ? "保存中..." : "保存配置"}</SaveButton>
+            <SaveButton type="button" onClick={saveDraft} disabled={!draft || isSaving || !(draft?.isNew ? hasPermission("risk.create") : hasPermission("risk.edit"))}><Save size={14} />{isSaving ? "保存中..." : "保存配置"}</SaveButton>
           </ConfigFooter>
           {savedMessage ? <SavedToast><Check size={14} />{savedMessage}</SavedToast> : null}
         </ConfigPanel>

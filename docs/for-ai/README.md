@@ -68,6 +68,8 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - `DEEPSEEK_BASE_URL`：默认 `https://api.deepseek.com`。
 - `DEEPSEEK_MODEL`：默认 `deepseek-v4-flash`。
 - `DEEPSEEK_TIMEOUT_SECONDS`：告警处置方案生成超时，默认 25 秒。
+- `AUTH_JWT_SECRET`：登录令牌签名密钥，至少 32 字符，只配置在后端环境。
+- `AUTH_TOKEN_EXPIRE_MINUTES`：登录令牌有效期，默认 480 分钟。
 
 告警确认提交数据库事务后，后端会在事务外调用 DeepSeek 生成结构化处置流程，再写入 `alarm_ai_advice`。调用失败不会回滚告警确认，而是写入规则降级建议并保留失败原因。
 
@@ -152,7 +154,10 @@ petroshield/
 | `/statistics-analysis` | 重定向到 `/statistics-analysis/risk-overview` |
 | `/statistics-analysis/risk-overview` | 风险态势总览已按原型实现 KPI、趋势、占比、热力和 TOP 榜图表，数据来自统计概览接口 |
 | `/statistics-analysis/risk-events`、`/alarm-stats`、`/person-tracks`、`/device-stats` | 各子路由保持独立占位页，不复用风险态势总览 UI |
-| `/system-management` 及其子路由 | 系统管理占位/原型 |
+| `/login` | 真实账号密码登录；默认演示管理员凭据显示在页面中 |
+| `/system-management/users` | 用户管理，已接真实账号新增、编辑、启停和密码重置接口 |
+| `/system-management/roles` | 角色权限，已接真实权限矩阵与后端强制校验 |
+| `/system-management/dictionaries`、`/operation-logs`、`/api-config` | 数据字典、真实审计日志与安全API配置页面 |
 
 注意：统计分析仅“风险态势总览”已接入完整内容，其他统计子页面仍待分别实现。
 
@@ -298,6 +303,25 @@ GET /api/v1/statistics/overview
 - `https://petroshield.netlify.app`
 
 如果 Vite 自动换到其他端口，可能被 CORS 拒绝。
+
+认证与系统管理：
+
+```http
+POST /api/v1/auth/login
+GET  /api/v1/auth/me
+POST /api/v1/auth/logout
+GET  /api/v1/system/users
+POST /api/v1/system/users
+PUT  /api/v1/system/users/{user_id}
+POST /api/v1/system/users/{user_id}/reset-password
+GET  /api/v1/system/roles
+GET  /api/v1/system/permissions
+POST /api/v1/system/roles
+PUT  /api/v1/system/roles/{role_id}/permissions
+GET  /api/v1/system/operation-logs
+```
+
+除健康检查和登录外，业务接口要求 Bearer Token。权限不只控制前端菜单和路由，后端也会按权限代码返回 403。
 
 ## 8. 数据库与 seed 摘要
 

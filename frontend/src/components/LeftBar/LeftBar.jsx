@@ -3,42 +3,50 @@ import { NavLink, useLocation, useNavigate } from "react-router";
 import Icon from "../Icon/Icon";
 import styled from "styled-components";
 import { COLORS, FONT_SIZES } from "../../constants/STYLES";
+import { useAuth } from "../../auth/authStore";
 
 const navItems = [
-  { to: "/", icon: "House", label: "首页" },
-  { to: "/people-management", icon: "UsersRound", label: "人员管理" },
-  { to: "/alarm-center", icon: "Siren", label: "告警中心" },
-  { to: "/device-management", icon: "Cpu", label: "设备管理" },
-  { to: "/risk-control", icon: "ShieldAlert", label: "风险管控" },
-  { to: "/video-ai", icon: "Cctv", label: "视频AI" },
+  { to: "/", icon: "House", label: "首页", permission: "dashboard.view" },
+  { to: "/people-management", icon: "UsersRound", label: "人员管理", permission: "people.view" },
+  { to: "/alarm-center", icon: "Siren", label: "告警中心", permission: "alarms.view" },
+  { to: "/device-management", icon: "Cpu", label: "设备管理", permission: "devices.view" },
+  { to: "/risk-control", icon: "ShieldAlert", label: "风险管控", permission: "risk.view" },
+  { to: "/video-ai", icon: "Cctv", label: "视频AI", permission: "video.view" },
   {
     icon: "ChartColumn",
     label: "统计分析",
     path: "/statistics-analysis",
     children: [
-      { to: "/statistics-analysis/risk-overview", label: "风险态势总览" },
-      { to: "/statistics-analysis/risk-events", label: "风险事件追溯" },
-      { to: "/statistics-analysis/alarm-stats", label: "告警统计分析" },
-      { to: "/statistics-analysis/person-tracks", label: "人员轨迹分析" },
-      { to: "/statistics-analysis/device-stats", label: "设备统计分析" },
+      { to: "/statistics-analysis/risk-overview", label: "风险态势总览", permission: "statistics.view" },
+      { to: "/statistics-analysis/risk-events", label: "风险事件追溯", permission: "statistics.view" },
+      { to: "/statistics-analysis/alarm-stats", label: "告警统计分析", permission: "statistics.view" },
+      { to: "/statistics-analysis/person-tracks", label: "人员轨迹分析", permission: "statistics.view" },
+      { to: "/statistics-analysis/device-stats", label: "设备统计分析", permission: "statistics.view" },
     ],
   },
   {
     icon: "Settings",
     label: "系统管理",
     path: "/system-management",
-    children: [{ to: "/system-management/user-settings", label: "用户设置" }],
+    children: [
+      { to: "/system-management/users", label: "用户管理", permission: "system.users.view" },
+      { to: "/system-management/roles", label: "角色权限", permission: "system.roles.view" },
+      { to: "/system-management/dictionaries", label: "数据字典", permission: "system.dictionaries.view" },
+      { to: "/system-management/operation-logs", label: "操作日志", permission: "system.logs.view" },
+      { to: "/system-management/api-config", label: "API配置", permission: "system.api.view" },
+    ],
   },
 ];
 
 function LeftBar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [openGroups, setOpenGroups] = useState({
-    "/statistics-analysis": false,
-    "/system-management": false,
-  });
+  const [openGroups, setOpenGroups] = useState(() => ({
+    "/statistics-analysis": location.pathname.startsWith("/statistics-analysis"),
+    "/system-management": location.pathname.startsWith("/system-management"),
+  }));
 
   const closeAllGroups = () => {
     setOpenGroups({
@@ -75,8 +83,12 @@ function LeftBar() {
 
   return (
     <Wrapper $isCollapsed={isCollapsed}>
-      {navItems.map((item) => {
+      <NavScroll $isCollapsed={isCollapsed}>
+        {navItems.map((item) => {
+        if (item.permission && !hasPermission(item.permission)) return null;
         if (item.children) {
+          const visibleChildren = item.children.filter((child) => hasPermission(child.permission));
+          if (!visibleChildren.length) return null;
           const isOpen = openGroups[item.path];
           const isActiveGroup = location.pathname.startsWith(item.path);
 
@@ -88,7 +100,7 @@ function LeftBar() {
                 $isActiveGroup={isActiveGroup}
                 $isOpen={isOpen}
                 $isCollapsed={isCollapsed}
-                onClick={() => handleDrawerClick(item)}
+                onClick={() => handleDrawerClick({ ...item, children: visibleChildren })}
               >
                 <Icon id={item.icon} size={18} />
                 <Word $isCollapsed={isCollapsed}>{item.label}</Word>
@@ -99,7 +111,7 @@ function LeftBar() {
 
               {!isCollapsed && isOpen && (
                 <DrawerPanel>
-                  {item.children.map((child) => (
+                  {visibleChildren.map((child) => (
                     <SubLink key={child.to} to={child.to} end>
                       {child.label}
                     </SubLink>
@@ -127,7 +139,8 @@ function LeftBar() {
             <Word $isCollapsed={isCollapsed}>{item.label}</Word>
           </LinkWrapper>
         );
-      })}
+        })}
+      </NavScroll>
 
       <MenuOpener
         type="button"
@@ -144,12 +157,30 @@ function LeftBar() {
 
 const Wrapper = styled.div`
   width: ${(p) => (p.$isCollapsed ? "4rem" : "10rem")};
+  height: 100%;
+  min-height: 0;
   padding: 16px 8px 16px 8px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   border-right: 1px ${COLORS.gray90} solid;
   transition: width 180ms ease;
+`;
+
+const NavScroll = styled.nav`
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-x: hidden;
+  overflow-y: ${(p) => (p.$isCollapsed ? "hidden" : "auto")};
+  padding-right: ${(p) => (p.$isCollapsed ? "0" : "2px")};
+  scrollbar-width: thin;
+  scrollbar-color: hsl(218 15% 78%) transparent;
+
+  &::-webkit-scrollbar { width: 5px; }
+  &::-webkit-scrollbar-thumb { background: hsl(218 15% 78%); border-radius: 4px; }
 `;
 
 const Word = styled.p`
@@ -197,7 +228,7 @@ const MenuOpener = styled.button`
   ${itemStyles}
   ${(p) => (p.$isCollapsed ? collapsedItemStyles : "")}
 
-  margin-top: auto;
+  flex: 0 0 auto;
   background-color: transparent;
   border: none;
 

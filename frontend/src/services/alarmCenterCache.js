@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, apiFetch } from "../config/api";
 
 const CACHE_TTL = 60_000;
 const listCache = new Map();
@@ -11,7 +11,7 @@ function isFresh(entry) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json();
 }

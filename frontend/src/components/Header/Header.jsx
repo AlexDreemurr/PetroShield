@@ -2,9 +2,19 @@ import React, { useState } from "react";
 import styled from "styled-components";
 import { COLORS, FONT_SIZES } from "../../constants/STYLES";
 import Icon from "../Icon/Icon";
+import { useAuth } from "../../auth/authStore";
+import { useNavigate } from "react-router";
 
 function Header() {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const { user, logout, hasPermission } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    setIsUserMenuOpen(false);
+    await logout();
+    navigate("/login", { replace: true });
+  }
 
   return (
     <Wrapper>
@@ -44,10 +54,10 @@ function Header() {
           aria-expanded={isUserMenuOpen}
           onClick={() => setIsUserMenuOpen((current) => !current)}
         >
-          <Avatar>张</Avatar>
+          <Avatar>{user?.display_name?.slice(0, 1) || "用"}</Avatar>
           <UserText>
-            <UserName>张三</UserName>
-            <UserRole>运营管理员</UserRole>
+            <UserName>{user?.display_name || "用户"}</UserName>
+            <UserRole>{user?.role?.name || "--"}</UserRole>
           </UserText>
           <ChevronIcon $isOpen={isUserMenuOpen}>
             <Icon id="ChevronDown" size={16} strokeWidth={2} />
@@ -56,10 +66,10 @@ function Header() {
 
         {isUserMenuOpen && (
           <Menu role="menu">
-            <MenuItem type="button" role="menuitem">
-              用户设置
-            </MenuItem>
-            <MenuItem type="button" role="menuitem">
+            {hasPermission("system.users.view") ? <MenuItem type="button" role="menuitem" onClick={() => { setIsUserMenuOpen(false); navigate("/system-management/users"); }}>
+              用户管理
+            </MenuItem> : null}
+            <MenuItem type="button" role="menuitem" onClick={handleLogout}>
               退出登录
             </MenuItem>
           </Menu>

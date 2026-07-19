@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, apiFetch } from "../config/api";
 import { warmAlarmCenter } from "./alarmCenterCache";
 
 const CACHE_TTL = 60_000;
@@ -29,7 +29,7 @@ export function loadCachedJson(url, { force = false } = {}) {
   if (current?.promise) return current.promise;
   if (!force && isFresh(current)) return Promise.resolve(current.data);
 
-  const promise = fetch(url)
+  const promise = apiFetch(url)
     .then((response) => {
       if (!response.ok) throw new Error(`Request failed: ${response.status}`);
       return response.json();
