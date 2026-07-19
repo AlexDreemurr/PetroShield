@@ -64,6 +64,12 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 - `DATABASE_URL`：首选 PostgreSQL 连接串。
 - `SUPABASE_DB_URL`：备用连接串。
 - `DB_SSL_VERIFY`：默认 `true`；只在明确知道代理/证书链问题时临时设为 `false`。
+- `DEEPSEEK_API_KEY`：DeepSeek API Key，仅配置在 `backend/.env` 或 Render Secret 环境变量中。
+- `DEEPSEEK_BASE_URL`：默认 `https://api.deepseek.com`。
+- `DEEPSEEK_MODEL`：默认 `deepseek-v4-flash`。
+- `DEEPSEEK_TIMEOUT_SECONDS`：告警处置方案生成超时，默认 25 秒。
+
+告警确认提交数据库事务后，后端会在事务外调用 DeepSeek 生成结构化处置流程，再写入 `alarm_ai_advice`。调用失败不会回滚告警确认，而是写入规则降级建议并保留失败原因。
 
 ### 数据库
 
@@ -336,14 +342,14 @@ sql_paths = [
 
 当前 seed 覆盖：
 
-- `seed.sql`：基础区域、25 名人员、16 台设备及各类基础快照。
+- `seed.sql`：不创建或覆盖区域；将 50 名人员、16 台设备及各类基础快照映射到风险管控中当前启用的区域。
 - `seed_operational_snapshots.sql`：将人员活跃、培训、体检、设备心跳、维护和合规日期刷新到统一锚点日。
-- `seed_person_positions.sql`：生成 7 天半小时间隔历史轨迹，以及每人最近 5 分钟逐秒实时轨迹；25 人时实时轨迹为 7,500 条，并同步 `person_position_current`。
-- `seed_alarms.sql`：生成锚点日及前 6 天共 50 条告警。
+- `seed_person_positions.sql`：依据当前区域几何生成 7 天半小时间隔历史轨迹，以及每人最近 5 分钟逐秒实时轨迹；50 人时实时轨迹为 15,000 条，并同步 `person_position_current`。
+- `seed_alarms.sql`：依据当前区域内的真实 seed 人员、设备及坐标，生成锚点日及前 6 天共 50 条告警。
 - `seed_alarm_workflow.sql`：为滚动告警补齐确认、派单、反馈、建议和操作日志。
-- `seed_person_health.sql`：生成 25 人乘 7 天，共 175 条人员健康观测。
+- `seed_person_health.sql`：生成 50 人乘 7 天，共 350 条人员健康观测。
 - `seed_device_realtime_observation.sql`：生成 16 台设备乘 7 天，共 112 条设备状态观测。
-- `verify_seed_last_7_days.sql`：校验数量、时间窗口和实时快照依赖；失败时让统一事务回滚。
+- `verify_seed_last_7_days.sql`：校验数量、时间窗口、实时快照及人员/设备/告警区域归属；失败时让统一事务回滚。
 
 Windows 一键入口为 `database/run-all-seeds.cmd`，实现位于 `database/run-all-seeds.ps1`。默认读取 `backend/.env` 的数据库连接，以北京时间今天为锚点；也支持 `-AnchorDate YYYY-MM-DD`、`-Local`、`-Linked`。入口按 PostgreSQL 语法拆分 seed，再封装为一个服务器端 `DO` 命令，以兼容 Supabase CLI 不接受 prepared statement 内含多条命令的限制；整个 `DO` 原子执行。脚本只清理固定 seed ID 或 seed 标记的数据，不按日期范围删除真实记录。详细用法见 `database/README.md`。
 

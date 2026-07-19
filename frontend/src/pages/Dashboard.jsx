@@ -7,8 +7,21 @@ import Icon from "../components/Icon/Icon";
 import MiniAreaSparkline from "../components/MiniAreaSparkline/MiniAreaSparkline";
 import { API_BASE_URL } from "../config/api";
 import { COLORS, FONT_SIZES } from "../constants/STYLES";
+import { warmAlarmCenter } from "../services/alarmCenterCache";
+import {
+  getCachedJson,
+  loadCachedJson,
+  warmApplicationPages,
+} from "../services/pageDataCache";
 
 const ALARM_PAGE_SIZE = 5;
+const DASHBOARD_URLS = {
+  metrics: `${API_BASE_URL}/dashboard/metrics`,
+  alarms: `${API_BASE_URL}/dashboard/realtime-alarms?limit=20`,
+  alarmTrend: `${API_BASE_URL}/dashboard/alarm-trend?days=7&granularity=day`,
+  personHealth: `${API_BASE_URL}/dashboard/person-health-analysis?days=7&granularity=day`,
+  deviceTrend: `${API_BASE_URL}/dashboard/device-online-trend?days=7&granularity=day`,
+};
 
 const dashboardPalette = {
   blue: "hsl(214 92% 56%)",
@@ -116,6 +129,7 @@ function normalizeRealtimeAlarm(item) {
     [item.person_name, item.department].filter(Boolean).join(" / ");
 
   return {
+    id: item.id,
     title,
     meta: meta || item.device_name || item.status || "未关联对象",
     level: item.level ?? "一般",
@@ -514,10 +528,12 @@ function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
           <AlarmRow
             key={
               item
-                ? `${normalizedPage}-${item.title}-${item.time}`
+                ? item.id
                 : `empty-${index}`
             }
+            to={item ? `/alarm-center?alarm_id=${encodeURIComponent(item.id)}` : "/alarm-center"}
             $isEmpty={!item}
+            tabIndex={item ? 0 : -1}
           >
             {item ? (
               <>
@@ -1199,31 +1215,42 @@ function DeviceOnlineTrendCard({
 }
 
 function Dashboard() {
-  const [metrics, setMetrics] = useState(null);
-  const [realtimeAlarms, setRealtimeAlarms] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const initialMetrics = getCachedJson(DASHBOARD_URLS.metrics);
+  const initialAlarms = getCachedJson(DASHBOARD_URLS.alarms);
+  const initialAlarmTrend = getCachedJson(DASHBOARD_URLS.alarmTrend);
+  const initialPersonHealth = getCachedJson(DASHBOARD_URLS.personHealth);
+  const initialDeviceTrend = getCachedJson(DASHBOARD_URLS.deviceTrend);
+  const [metrics, setMetrics] = useState(initialMetrics);
+  const [realtimeAlarms, setRealtimeAlarms] = useState(() =>
+    (initialAlarms?.items ?? []).map(normalizeRealtimeAlarm)
+  );
+  const [isLoading, setIsLoading] = useState(() => !initialMetrics);
   const [hasError, setHasError] = useState(false);
   const [alarmHasError, setAlarmHasError] = useState(false);
-  const [isAlarmLoading, setIsAlarmLoading] = useState(true);
-  const [alarmTrend, setAlarmTrend] = useState([]);
+  const [isAlarmLoading, setIsAlarmLoading] = useState(() => !initialAlarms);
+  const [alarmTrend, setAlarmTrend] = useState(initialAlarmTrend?.items ?? []);
   const [alarmTrendHasError, setAlarmTrendHasError] = useState(false);
-  const [isAlarmTrendLoading, setIsAlarmTrendLoading] = useState(true);
+  const [isAlarmTrendLoading, setIsAlarmTrendLoading] = useState(() => !initialAlarmTrend);
   const [alarmTrendRangeDays, setAlarmTrendRangeDays] = useState(7);
   const [alarmTrendGranularity, setAlarmTrendGranularity] = useState("day");
-  const [personHealthAnalysis, setPersonHealthAnalysis] = useState(null);
+  const [personHealthAnalysis, setPersonHealthAnalysis] = useState(initialPersonHealth);
   const [personHealthHasError, setPersonHealthHasError] = useState(false);
-  const [isPersonHealthLoading, setIsPersonHealthLoading] = useState(true);
+  const [isPersonHealthLoading, setIsPersonHealthLoading] = useState(() => !initialPersonHealth);
   const [personHealthRangeDays, setPersonHealthRangeDays] = useState(7);
   const [personHealthGranularity, setPersonHealthGranularity] = useState("day");
-  const [deviceOnlineTrend, setDeviceOnlineTrend] = useState([]);
+  const [deviceOnlineTrend, setDeviceOnlineTrend] = useState(initialDeviceTrend?.items ?? []);
   const [deviceOnlineTrendHasError, setDeviceOnlineTrendHasError] =
     useState(false);
   const [isDeviceOnlineTrendLoading, setIsDeviceOnlineTrendLoading] =
-    useState(true);
+    useState(() => !initialDeviceTrend);
   const [deviceOnlineTrendRangeDays, setDeviceOnlineTrendRangeDays] =
     useState(7);
   const [deviceOnlineTrendGranularity, setDeviceOnlineTrendGranularity] =
     useState("day");
+
+  useEffect(() => {
+    void warmApplicationPages();
+  }, []);
 
   const metricSparkSeries = useMemo(() => {
     const alarmTotals = alarmTrend.map(
@@ -1259,21 +1286,19 @@ function Dashboard() {
     let ignore = false;
 
     async function loadMetrics() {
+      const cachedMetrics = getCachedJson(DASHBOARD_URLS.metrics);
       try {
         setHasError(false);
-        const response = await fetch(`${API_BASE_URL}/dashboard/metrics`);
-
-        if (!response.ok) {
-          throw new Error("Failed to load dashboard metrics");
-        }
-
-        const data = await response.json();
+        setIsLoading(!cachedMetrics);
+        const data = await loadCachedJson(DASHBOARD_URLS.metrics, {
+          force: Boolean(cachedMetrics),
+        });
 
         if (!ignore) {
           setMetrics(data);
         }
       } catch {
-        if (!ignore) {
+        if (!ignore && !cachedMetrics) {
           setHasError(true);
         }
       } finally {
@@ -1284,24 +1309,22 @@ function Dashboard() {
     }
 
     async function loadRealtimeAlarms() {
+      const cachedAlarms = getCachedJson(DASHBOARD_URLS.alarms);
       try {
-        setIsAlarmLoading(true);
+        setIsAlarmLoading(!cachedAlarms);
         setAlarmHasError(false);
-        const response = await fetch(
-          `${API_BASE_URL}/dashboard/realtime-alarms?limit=20`
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to load realtime alarms");
-        }
-
-        const data = await response.json();
+        const data = await loadCachedJson(DASHBOARD_URLS.alarms, {
+          force: Boolean(cachedAlarms),
+        });
 
         if (!ignore) {
-          setRealtimeAlarms((data.items ?? []).map(normalizeRealtimeAlarm));
+          const alarmItems = data.items ?? [];
+          await warmAlarmCenter(alarmItems);
+          if (ignore) return;
+          setRealtimeAlarms(alarmItems.map(normalizeRealtimeAlarm));
         }
       } catch {
-        if (!ignore) {
+        if (!ignore && !cachedAlarms) {
           setAlarmHasError(true);
         }
       } finally {
@@ -1328,24 +1351,20 @@ function Dashboard() {
     let ignore = false;
 
     async function loadLastSevenDaysAlarmTrend() {
+      const trendUrl = `${API_BASE_URL}/dashboard/alarm-trend?days=${alarmTrendRangeDays}&granularity=${alarmTrendGranularity}`;
+      const cachedTrend = getCachedJson(trendUrl);
       try {
-        setIsAlarmTrendLoading(true);
+        setIsAlarmTrendLoading(!cachedTrend);
         setAlarmTrendHasError(false);
-        const response = await fetch(
-          `${API_BASE_URL}/dashboard/alarm-trend?days=${alarmTrendRangeDays}&granularity=${alarmTrendGranularity}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to load the last seven days alarm trend");
-        }
-
-        const data = await response.json();
+        const data = await loadCachedJson(trendUrl, {
+          force: Boolean(cachedTrend),
+        });
 
         if (!ignore) {
           setAlarmTrend(data.items ?? []);
         }
       } catch {
-        if (!ignore) {
+        if (!ignore && !cachedTrend) {
           setAlarmTrendHasError(true);
         }
       } finally {
@@ -1368,24 +1387,20 @@ function Dashboard() {
     let ignore = false;
 
     async function loadPersonHealthAnalysis() {
+      const healthUrl = `${API_BASE_URL}/dashboard/person-health-analysis?days=${personHealthRangeDays}&granularity=${personHealthGranularity}`;
+      const cachedHealth = getCachedJson(healthUrl);
       try {
-        setIsPersonHealthLoading(true);
+        setIsPersonHealthLoading(!cachedHealth);
         setPersonHealthHasError(false);
-        const response = await fetch(
-          `${API_BASE_URL}/dashboard/person-health-analysis?days=${personHealthRangeDays}&granularity=${personHealthGranularity}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to load person health analysis");
-        }
-
-        const data = await response.json();
+        const data = await loadCachedJson(healthUrl, {
+          force: Boolean(cachedHealth),
+        });
 
         if (!ignore) {
           setPersonHealthAnalysis(data);
         }
       } catch {
-        if (!ignore) {
+        if (!ignore && !cachedHealth) {
           setPersonHealthHasError(true);
         }
       } finally {
@@ -1408,21 +1423,19 @@ function Dashboard() {
     let ignore = false;
 
     async function loadDeviceOnlineTrend() {
+      const trendUrl = `${API_BASE_URL}/dashboard/device-online-trend?days=${deviceOnlineTrendRangeDays}&granularity=${deviceOnlineTrendGranularity}`;
+      const cachedTrend = getCachedJson(trendUrl);
       try {
-        setIsDeviceOnlineTrendLoading(true);
+        setIsDeviceOnlineTrendLoading(!cachedTrend);
         setDeviceOnlineTrendHasError(false);
-        const response = await fetch(
-          `${API_BASE_URL}/dashboard/device-online-trend?days=${deviceOnlineTrendRangeDays}&granularity=${deviceOnlineTrendGranularity}`
-        );
-        if (!response.ok) {
-          throw new Error("Failed to load device online trend");
-        }
-        const data = await response.json();
+        const data = await loadCachedJson(trendUrl, {
+          force: Boolean(cachedTrend),
+        });
         if (!ignore) {
           setDeviceOnlineTrend(data.items ?? []);
         }
       } catch {
-        if (!ignore) {
+        if (!ignore && !cachedTrend) {
           setDeviceOnlineTrendHasError(true);
         }
       } finally {
@@ -1950,7 +1963,7 @@ const AlarmStatusMessage = styled.div`
   pointer-events: none;
 `;
 
-const AlarmRow = styled.div`
+const AlarmRow = styled(Link)`
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 46px 66px;
   align-items: center;
@@ -1959,6 +1972,15 @@ const AlarmRow = styled.div`
   border-bottom: 1px solid hsl(220 13% 92%);
   opacity: ${(p) => (p.$isEmpty ? 0 : 1)};
   pointer-events: ${(p) => (p.$isEmpty ? "none" : "auto")};
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+
+  &:hover,
+  &:focus-visible {
+    background: hsl(214 100% 97%);
+    outline: none;
+  }
 `;
 
 const AlarmIcon = styled.div`

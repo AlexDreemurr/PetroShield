@@ -2,9 +2,10 @@
 import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
 import { getAreaLocalCenter } from "../BaiduSatelliteMap/mapGeometry";
+import { createMapMarkerIcon } from "../BaiduSatelliteMap/mapMarkerIcons";
 import MapFullscreenButton from "../BaiduSatelliteMap/MapFullscreenButton";
-import { API_BASE_URL } from "../../config/api";
 import { FONT_SIZES } from "../../constants/STYLES";
+import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../../services/pageDataCache";
 
 const MAP_CENTER = {
   lng: 121.671271,
@@ -73,28 +74,8 @@ const zoneAnchors = [
   },
 ];
 
-function getStatusTone(status) {
-  if (["离线"].includes(status)) {
-    return "gray";
-  }
-
-  if (["异常", "风险", "禁止进入", "告警"].includes(status)) {
-    return "red";
-  }
-
-  return "blue";
-}
-
-function getToneColor(tone) {
-  return {
-    blue: "#1677ff",
-    red: "#ef4444",
-    gray: "#8b95a5",
-  }[tone];
-}
-
 function isFiniteCoordinate(value) {
-  return Number.isFinite(Number(value));
+  return value !== null && value !== "" && Number.isFinite(Number(value));
 }
 
 function toMapCoordinate(person, index) {
@@ -365,38 +346,11 @@ function addTrackArrowOverlay(BMap, map, startCoordinate, endCoordinate) {
 }
 
 function createPersonIcon(BMap, person, isSelected) {
-  const tone = getStatusTone(person.status);
-  const color = getToneColor(tone);
-  const size = 28;
-  const selectedRing = isSelected
-    ? `<circle cx="18" cy="18" r="16" fill="none" stroke="#facc15" stroke-width="4" opacity="0.98"/>`
-    : "";
-  const shadowFilter = isSelected
-    ? `<filter id="selectedShadow" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="2" stdDeviation="2.4" flood-color="#f59e0b" flood-opacity="0.72"/>
-      </filter>`
-    : "";
-  const filterAttr = isSelected ? ` filter="url(#selectedShadow)"` : "";
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 36 36">
-      <defs>${shadowFilter}</defs>
-      ${selectedRing}
-      <g${filterAttr}>
-        <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="2.2"/>
-        <circle cx="18" cy="15" r="4" fill="white"/>
-        <path d="M10 27c1.8-4.2 5-6.3 8-6.3s6.2 2.1 8 6.3" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/>
-      </g>
-    </svg>
-  `;
-
-  return new BMap.Icon(
-    `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-    new BMap.Size(size, size),
-    {
-      imageSize: new BMap.Size(size, size),
-      anchor: new BMap.Size(size / 2, size / 2),
-    }
-  );
+  return createMapMarkerIcon(BMap, {
+    kind: "person",
+    status: person.status,
+    selected: isSelected,
+  });
 }
 
 function PeopleLocationMap({
@@ -415,18 +369,16 @@ function PeopleLocationMap({
   const [showAllPeople, setShowAllPeople] = useState(true);
   const [showPersonNames, setShowPersonNames] = useState(true);
   const [showAllAreas, setShowAllAreas] = useState(true);
-  const [riskAreas, setRiskAreas] = useState([]);
-  const [areaStatus, setAreaStatus] = useState("loading");
+  const initialAreaPayload = getCachedJson(PAGE_DATA_URLS.areas);
+  const [riskAreas, setRiskAreas] = useState(initialAreaPayload?.items ?? []);
+  const [areaStatus, setAreaStatus] = useState(initialAreaPayload ? "ready" : "loading");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mapRevision, setMapRevision] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
-    fetch(`${API_BASE_URL}/risk-control/overview`)
-      .then((response) => {
-        if (!response.ok) throw new Error("Failed to load risk areas");
-        return response.json();
-      })
+    const cachedPayload = getCachedJson(PAGE_DATA_URLS.areas);
+    loadCachedJson(PAGE_DATA_URLS.areas, { force: Boolean(cachedPayload) })
       .then((payload) => {
         if (isMounted) {
           setRiskAreas(payload.items ?? []);
@@ -436,7 +388,7 @@ function PeopleLocationMap({
       .catch(() => {
         if (isMounted) {
           setRiskAreas([]);
-          setAreaStatus("error");
+          if (!cachedPayload) setAreaStatus("error");
         }
       });
     return () => {

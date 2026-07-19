@@ -20,7 +20,7 @@ clock as (
 ranked_person as (
   select id, row_number() over (order by id)::integer as item_order
   from public.person
-  where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$'
+  where id ~ '^person-(00[1-9]|0[1-4][0-9]|050)$'
 )
 update public.person p
 set

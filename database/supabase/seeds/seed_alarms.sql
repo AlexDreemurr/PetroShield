@@ -1,183 +1,25 @@
--- 最近 7 天告警趋势模拟数据。
---
--- 使用前提：目标数据库已经执行过 seed.sql，存在本文件引用的区域、人员和设备。
--- 使用方式：可以在 Supabase SQL Editor 中单独执行，也会在本地 db reset 时于 seed.sql 后执行。
--- 重复执行：不会产生重复记录；固定 ID 对应的记录会刷新到执行当天的最近 7 天。
+-- 使用数据库现有人员、设备、区域及其坐标生成最近 7 天的 50 条告警。
+-- 重复执行不会产生重复记录；固定 ID 会刷新到执行当天。
 
 do $$
 begin
-  if (select count(*) from public.person where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$') <> 25
-     or (select count(*) from public.device) < 16
-     or not exists (select 1 from public.area where id = 'area-tank-a')
-     or not exists (select 1 from public.area where id = 'area-loading-b')
-     or not exists (select 1 from public.area where id = 'area-office')
-     or not exists (select 1 from public.area where id = 'area-pump-c')
-     or not exists (select 1 from public.person where id = 'person-001')
-     or not exists (select 1 from public.person where id = 'person-003')
-     or not exists (select 1 from public.person where id = 'person-007')
-     or not exists (select 1 from public.person where id = 'person-008')
-     or not exists (select 1 from public.device where id = 'dev-camera-a01')
-     or not exists (select 1 from public.device where id = 'dev-camera-b02')
-     or not exists (select 1 from public.device where id = 'dev-gas-a01')
-     or not exists (select 1 from public.device where id = 'dev-pump-c01')
-     or not exists (select 1 from public.device where id = 'dev-meter-c01') then
-    raise exception 'seed_alarms.sql 依赖 seed.sql 的基础区域、人员和设备，请先执行 seed.sql';
+  if not exists (select 1 from public.person) then
+    raise exception 'seed_alarms.sql 需要至少一名现有人员';
+  end if;
+  if not exists (select 1 from public.device) then
+    raise exception 'seed_alarms.sql 需要至少一台现有设备';
+  end if;
+  if not exists (select 1 from public.area where enable is not false) then
+    raise exception 'seed_alarms.sql 需要至少一个启用区域';
   end if;
 end;
 $$;
 
--- 基础 seed 会写入少量固定日期示例；统一入口只保留本文件的滚动 7 天告警。
 delete from public.alarm
 where id ~ '^alarm-00[1-6]$'
    or evidence ->> 'seed_source' = 'seed_alarms.sql';
 
-with alarm_samples (
-  id, day_offset, event_time, type, level, location, status,
-  person_id, device_id, confidence, description, evidence
-) as (
-  values
-    (
-      'alarm-trend-001', 0, time '09:12:00', '越界', '严重',
-      '{"area_id":"area-tank-a","x":251.0,"y":196.0}'::jsonb,
-      '新建', 'person-007', 'dev-camera-a01', 0.94,
-      '孙华进入A区储罐围栏限制边界，系统触发越界告警',
-      '{"images":["mock://evidence/alarm-trend-001.jpg"],"model":"boundary-detection-v1"}'::jsonb
-    ),
-    (
-      'alarm-trend-002', 0, time '10:05:00', '设备异常', '严重',
-      '{"area_id":"area-pump-c","x":545.0,"y":342.0}'::jsonb,
-      '处理中', null, 'dev-pump-c01', 0.89,
-      'C区循环泵振动与温度连续超过预警阈值',
-      '{"sensor":{"temperature":59.2,"vibration":8.7}}'::jsonb
-    ),
-    (
-      'alarm-trend-003', 0, time '11:18:00', '离线', '一般',
-      '{"area_id":"area-loading-b","x":390.0,"y":220.0}'::jsonb,
-      '确认', 'person-008', null, null,
-      '吴迪的定位标签连续离线超过五分钟',
-      '{"source":"uwb","offline_minutes":6}'::jsonb
-    ),
-    (
-      'alarm-trend-004', 1, time '08:46:00', '跌倒', '重大',
-      '{"area_id":"area-loading-b","x":338.4,"y":171.8}'::jsonb,
-      '处理中', 'person-003', 'dev-camera-b02', 0.92,
-      'AI识别到王强在B区装卸作业区疑似跌倒',
-      '{"images":["mock://evidence/alarm-trend-004.jpg"],"model":"fall-detection-v1"}'::jsonb
-    ),
-    (
-      'alarm-trend-005', 1, time '13:27:00', '设备异常', '一般',
-      '{"area_id":"area-pump-c","x":552.0,"y":350.0}'::jsonb,
-      '确认', null, 'dev-meter-c01', 0.84,
-      'C区压力仪表读数短时波动，已通知仪表人员复核',
-      '{"sensor":{"pressure":1.86,"unit":"MPa"}}'::jsonb
-    ),
-    (
-      'alarm-trend-006', 2, time '07:55:00', '越界', '重大',
-      '{"area_id":"area-tank-a","x":258.0,"y":202.0}'::jsonb,
-      '关闭', 'person-007', 'dev-camera-a01', 0.96,
-      '高风险作业人员进入A区储罐围栏核心禁入范围',
-      '{"images":["mock://evidence/alarm-trend-006.jpg"],"video":"mock://evidence/alarm-trend-006.mp4"}'::jsonb
-    ),
-    (
-      'alarm-trend-007', 2, time '10:32:00', '识别异常', '一般',
-      '{"area_id":"area-office","x":72.0,"y":88.0}'::jsonb,
-      '误报', 'person-001', null, 0.65,
-      '办公区人员证件识别置信度偏低，人工复核为误报',
-      '{"model":"badge-ocr-v1","reviewed":true}'::jsonb
-    ),
-    (
-      'alarm-trend-008', 2, time '15:14:00', '离线', '一般',
-      '{"area_id":"area-loading-b","x":382.0,"y":214.0}'::jsonb,
-      '确认', 'person-008', null, null,
-      '承包商定位信号离线超过设定阈值',
-      '{"source":"uwb","offline_minutes":9}'::jsonb
-    ),
-    (
-      'alarm-trend-009', 3, time '09:08:00', '设备异常', '严重',
-      '{"area_id":"area-loading-b","x":365.0,"y":122.0}'::jsonb,
-      '处理中', null, 'dev-camera-b02', 0.90,
-      'B区装卸摄像头视频流中断并伴随设备温度升高',
-      '{"sensor":{"signal_strength":31,"temperature":52.4}}'::jsonb
-    ),
-    (
-      'alarm-trend-010', 3, time '11:36:00', '越界', '严重',
-      '{"area_id":"area-loading-b","x":424.0,"y":246.0}'::jsonb,
-      '新建', 'person-003', 'dev-camera-b02', 0.88,
-      '承包商未完成作业许可校验进入B区限制区域',
-      '{"images":["mock://evidence/alarm-trend-010.jpg"],"rule":"permit_required"}'::jsonb
-    ),
-    (
-      'alarm-trend-011', 3, time '14:22:00', '识别异常', '一般',
-      '{"area_id":"area-office","x":68.0,"y":82.0}'::jsonb,
-      '确认', 'person-001', null, 0.78,
-      '办公区门禁人脸识别连续两次失败',
-      '{"model":"face-recognition-v2","retry_count":2}'::jsonb
-    ),
-    (
-      'alarm-trend-012', 3, time '17:03:00', '离线', '一般',
-      '{"area_id":"area-loading-b","x":390.0,"y":220.0}'::jsonb,
-      '关闭', 'person-008', null, null,
-      '定位标签离线，确认人员已正常离场',
-      '{"source":"uwb","manual_confirmed":true}'::jsonb
-    ),
-    (
-      'alarm-trend-013', 4, time '08:18:00', '跌倒', '重大',
-      '{"area_id":"area-loading-b","x":345.0,"y":180.0}'::jsonb,
-      '待复核', 'person-003', 'dev-camera-b02', 0.93,
-      'B区装卸平台检测到人员倒地并持续未起身',
-      '{"images":["mock://evidence/alarm-trend-013.jpg"],"duration_seconds":18}'::jsonb
-    ),
-    (
-      'alarm-trend-014', 4, time '10:41:00', '越界', '严重',
-      '{"area_id":"area-tank-a","x":248.0,"y":194.0}'::jsonb,
-      '处理中', 'person-007', 'dev-camera-a01', 0.91,
-      'A区储罐巡检人员接近高风险边界',
-      '{"images":["mock://evidence/alarm-trend-014.jpg"],"distance_to_boundary":1.2}'::jsonb
-    ),
-    (
-      'alarm-trend-015', 4, time '16:09:00', '设备异常', '一般',
-      '{"area_id":"area-pump-c","x":552.0,"y":350.0}'::jsonb,
-      '新建', null, 'dev-meter-c01', 0.82,
-      'C区压力仪表通信延迟超过设备健康阈值',
-      '{"sensor":{"latency_ms":1680,"health_score":76}}'::jsonb
-    ),
-    (
-      'alarm-trend-016', 5, time '09:53:00', '识别异常', '严重',
-      '{"area_id":"area-tank-a","x":190.0,"y":145.0}'::jsonb,
-      '确认', 'person-007', 'dev-camera-a01', 0.87,
-      'A区摄像头识别到人员未按要求佩戴防护装备',
-      '{"images":["mock://evidence/alarm-trend-016.jpg"],"model":"ppe-detection-v1"}'::jsonb
-    ),
-    (
-      'alarm-trend-017', 5, time '14:37:00', '离线', '一般',
-      '{"area_id":"area-loading-b","x":386.0,"y":216.0}'::jsonb,
-      '关闭', 'person-008', null, null,
-      '定位标签短时离线，信号恢复后自动关闭',
-      '{"source":"uwb","offline_minutes":3,"recovered":true}'::jsonb
-    ),
-    (
-      'alarm-trend-018', 6, time '08:25:00', '越界', '严重',
-      '{"area_id":"area-tank-a","x":253.0,"y":199.0}'::jsonb,
-      '确认', 'person-007', 'dev-camera-a01', 0.92,
-      '人员进入A区储罐围栏预警范围',
-      '{"images":["mock://evidence/alarm-trend-018.jpg"],"model":"boundary-detection-v1"}'::jsonb
-    ),
-    (
-      'alarm-trend-019', 6, time '12:16:00', '设备异常', '严重',
-      '{"area_id":"area-tank-a","x":238.0,"y":205.0}'::jsonb,
-      '处理中', null, 'dev-gas-a01', 0.90,
-      'A区可燃气体探测器读数达到严重告警阈值',
-      '{"sensor":{"lel":24.8,"unit":"%LEL"}}'::jsonb
-    ),
-    (
-      'alarm-trend-020', 6, time '16:48:00', '离线', '一般',
-      '{"area_id":"area-loading-b","x":390.0,"y":220.0}'::jsonb,
-      '新建', 'person-008', null, null,
-      '承包商定位信号离线，等待现场人员确认',
-      '{"source":"uwb","offline_minutes":5}'::jsonb
-    )
-),
-seed_clock as (
+with seed_clock as (
   select
     coalesce(
       nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
@@ -192,53 +34,12 @@ clock as (
       else (anchor_date::timestamp + time '18:00:00') at time zone 'Asia/Shanghai'
     end as seed_now
   from seed_clock
-)
-insert into public.alarm (
-  id, type, level, location, "time", status, person_id, device_id,
-  confidence, description, evidence
-)
-select
-  a.id,
-  a.type,
-  a.level,
-  a.location,
-  case
-    when a.day_offset = 0 then least(
-      (c.anchor_date::timestamp + a.event_time) at time zone 'Asia/Shanghai',
-      c.seed_now - make_interval(secs => right(a.id, 3)::integer)
-    )
-    else (
-      c.anchor_date::timestamp - make_interval(days => a.day_offset) + a.event_time
-    ) at time zone 'Asia/Shanghai'
-  end,
-  a.status,
-  a.person_id,
-  a.device_id,
-  a.confidence,
-  a.description,
-  a.evidence || jsonb_build_object(
-    'seed_source', 'seed_alarms.sql',
-    'mock_data', true
-  )
-from alarm_samples a
-cross join clock c
-on conflict (id) do update set
-  type = excluded.type,
-  level = excluded.level,
-  location = excluded.location,
-  "time" = excluded."time",
-  status = excluded.status,
-  person_id = excluded.person_id,
-  device_id = excluded.device_id,
-  confidence = excluded.confidence,
-  description = excluded.description,
-  evidence = excluded.evidence;
-
-with generated_alarm as (
+),
+generated as (
   select
     n,
-    (n - 21) % 7 as day_offset,
-    case n % 5
+    (n - 1) % 7 as day_offset,
+    case (n - 1) % 5
       when 0 then '越界'
       when 1 then '设备异常'
       when 2 then '识别异常'
@@ -250,79 +51,162 @@ with generated_alarm as (
       when n % 3 = 0 then '严重'
       else '一般'
     end as alarm_level,
-    case n % 5
+    case n % 6
       when 0 then '新建'
       when 1 then '处理中'
       when 2 then '确认'
       when 3 then '关闭'
-      else '待复核'
-    end as alarm_status,
-    format('person-%s', lpad((((n - 21) % 25) + 1)::text, 3, '0')) as person_id,
-    (array[
-      'dev-camera-a01', 'dev-camera-b02', 'dev-pump-c01', 'dev-meter-c01',
-      'dev-camera-c03', 'dev-camera-office01', 'dev-gas-b02', 'dev-temp-c01',
-      'dev-access-b01', 'dev-drone-a01'
-    ])[((n - 21) % 10) + 1] as device_id,
-    (array['area-tank-a','area-loading-b','area-pump-c','area-office'])[((n - 21) % 4) + 1] as area_id
-  from generate_series(21, 50) as n
+      when 4 then '待复核'
+      else '误报'
+    end as alarm_status
+  from generate_series(1, 50) as n
 ),
-seed_clock as (
+entity_samples as (
   select
-    coalesce(
-      nullif(current_setting('petroshield.seed_anchor_date', true), '')::date,
-      (now() at time zone 'Asia/Shanghai')::date
-    ) as anchor_date
+    g.*,
+    person_sample.id as sampled_person_id,
+    person_sample.name as person_name,
+    person_sample.device_id as bound_device_id,
+    person_sample.person_area_id,
+    person_sample.position_x,
+    person_sample.position_y,
+    person_sample.bound_location,
+    device_sample.id as sampled_device_id,
+    device_sample.name as device_name,
+    device_sample.type as device_type,
+    device_sample.region_id as device_area_id,
+    device_sample.location as device_location
+  from generated g
+  cross join lateral (
+    select
+      person.id,
+      person.name,
+      person.device_id,
+      coalesce(zone_area.id, bound_device.region_id) as person_area_id,
+      current_position.x as position_x,
+      current_position.y as position_y,
+      bound_device.location as bound_location
+    from public.person person
+    left join public.person_position_current current_position
+      on current_position.person_id = person.id
+    left join public.area zone_area
+      on zone_area.name = person.location_zone
+     and zone_area.enable is not false
+    left join public.device bound_device on bound_device.id = person.device_id
+    where person.id ~ '^person-(00[1-9]|0[1-4][0-9]|050)$'
+    order by md5(person.id || ':' || g.n::text)
+    limit 1
+  ) person_sample
+  cross join lateral (
+    select device.id, device.name, device.type, device.region_id, device.location
+    from public.device device
+    join public.area device_area
+      on device_area.id = device.region_id
+     and device_area.enable is not false
+    order by
+      case
+        when g.alarm_type = '设备异常' then 0
+        when device.region_id = person_sample.person_area_id and device.type like '%摄像%' then 0
+        when device.region_id = person_sample.person_area_id then 1
+        else 2
+      end,
+      md5(device.id || ':' || g.n::text)
+    limit 1
+  ) device_sample
 ),
-clock as (
+resolved as (
   select
-    anchor_date,
-    case
-      when anchor_date = (now() at time zone 'Asia/Shanghai')::date then now()
-      else (anchor_date::timestamp + time '18:00:00') at time zone 'Asia/Shanghai'
-    end as seed_now
-  from seed_clock
+    sample.*,
+    area.id as area_id,
+    area.name as area_name,
+    area.center as area_center
+  from entity_samples sample
+  cross join lateral (
+    select candidate.id, candidate.name, candidate.center
+    from public.area candidate
+    where candidate.enable is not false
+    order by
+      case
+        when candidate.id = case
+          when sample.alarm_type = '设备异常' then sample.device_area_id
+          else coalesce(sample.person_area_id, sample.device_area_id)
+        end then 0
+        else 1
+      end,
+      candidate.id
+    limit 1
+  ) area
 )
 insert into public.alarm (
   id, type, level, location, "time", status, person_id, device_id,
   confidence, description, evidence
 )
 select
-  format('alarm-trend-%s', lpad(g.n::text, 3, '0')),
-  g.alarm_type,
-  g.alarm_level,
+  format('alarm-trend-%s', lpad(data.n::text, 3, '0')),
+  data.alarm_type,
+  data.alarm_level,
   jsonb_build_object(
-    'area_id', g.area_id,
-    'x', 100 + g.n * 7 % 500,
-    'y', 70 + g.n * 11 % 300
+    'area_id', data.area_id,
+    'area_name', data.area_name,
+    'x', coalesce(
+      case when data.alarm_type = '设备异常' then nullif(data.device_location ->> 'x', '')::numeric else data.position_x end,
+      nullif(data.bound_location ->> 'x', '')::numeric,
+      nullif(data.device_location ->> 'x', '')::numeric,
+      nullif(data.area_center ->> 'x', '')::numeric,
+      300
+    ),
+    'y', coalesce(
+      case when data.alarm_type = '设备异常' then nullif(data.device_location ->> 'y', '')::numeric else data.position_y end,
+      nullif(data.bound_location ->> 'y', '')::numeric,
+      nullif(data.device_location ->> 'y', '')::numeric,
+      nullif(data.area_center ->> 'y', '')::numeric,
+      220
+    )
   ),
   case
-    when g.day_offset = 0 then least(
+    when data.day_offset = 0 then least(
       (
-        c.anchor_date::timestamp
+        clock.anchor_date::timestamp
         + time '07:00:00'
-        + make_interval(mins => g.n * 19 % 600)
+        + make_interval(mins => data.n * 19 % 600)
       ) at time zone 'Asia/Shanghai',
-      c.seed_now - make_interval(secs => g.n)
+      clock.seed_now - make_interval(secs => data.n)
     )
     else (
-      c.anchor_date::timestamp
-      - make_interval(days => g.day_offset)
+      clock.anchor_date::timestamp
+      - make_interval(days => data.day_offset)
       + time '07:00:00'
-      + make_interval(mins => g.n * 19 % 600)
+      + make_interval(mins => data.n * 19 % 600)
     ) at time zone 'Asia/Shanghai'
   end,
-  g.alarm_status,
-  case when g.alarm_type = '设备异常' then null else g.person_id end,
-  case when g.alarm_type in ('离线', '识别异常') then null else g.device_id end,
-  0.72 + (g.n % 20) * 0.01,
-  format('扩展模拟告警 #%s：%s场景', g.n, g.alarm_type),
+  data.alarm_status,
+  case when data.alarm_type = '设备异常' then null else data.sampled_person_id end,
+  case
+    when data.alarm_type = '设备异常' then data.sampled_device_id
+    when data.alarm_type = '离线' then coalesce(data.bound_device_id, data.sampled_device_id)
+    else data.sampled_device_id
+  end,
+  0.72 + (data.n % 20) * 0.01,
+  case data.alarm_type
+    when '设备异常' then format('%s在%s触发设备状态异常告警', data.device_name, data.area_name)
+    when '越界' then format('%s进入%s限制边界，系统触发越界告警', data.person_name, data.area_name)
+    when '识别异常' then format('%s在%s的智能识别结果需要人工核验', data.person_name, data.area_name)
+    when '离线' then format('%s的定位设备在%s连续离线超过阈值', data.person_name, data.area_name)
+    else format('%s在%s被识别为疑似跌倒', data.person_name, data.area_name)
+  end,
   jsonb_build_object(
     'seed_source', 'seed_alarms.sql',
     'mock_data', true,
-    'batch', 'expanded'
+    'person_id', case when data.alarm_type = '设备异常' then null else data.sampled_person_id end,
+    'person_name', case when data.alarm_type = '设备异常' then null else data.person_name end,
+    'device_id', data.sampled_device_id,
+    'device_name', data.device_name,
+    'device_type', data.device_type,
+    'area_id', data.area_id,
+    'area_name', data.area_name
   )
-from generated_alarm g
-cross join clock c
+from resolved data
+cross join clock
 on conflict (id) do update set
   type = excluded.type,
   level = excluded.level,
@@ -335,7 +219,6 @@ on conflict (id) do update set
   description = excluded.description,
   evidence = excluded.evidence;
 
--- 执行完成后返回本批模拟数据的按日、按等级统计，便于在 SQL Editor 中核对。
 select
   ("time" at time zone 'Asia/Shanghai')::date as alarm_date,
   level,
@@ -344,7 +227,3 @@ from public.alarm
 where evidence ->> 'seed_source' = 'seed_alarms.sql'
 group by 1, 2
 order by 1, 2;
-
--- 如需删除本文件生成的模拟告警，可单独执行：
--- delete from public.alarm
--- where evidence ->> 'seed_source' = 'seed_alarms.sql';

@@ -189,6 +189,7 @@ Write-Host 'PetroShield rolling 7-day seed' -ForegroundColor Cyan
 Write-Host "Anchor date (Asia/Shanghai): $AnchorDate"
 Write-Host "Target: $targetLabel"
 Write-Host 'Only fixed PetroShield seed IDs and seed_source-marked rows will be refreshed.'
+Write-Host 'Risk-control areas are preserved; all generated entities will use the currently enabled areas.'
 
 if (-not $Force) {
   $confirmation = Read-Host 'Type SEED to continue'

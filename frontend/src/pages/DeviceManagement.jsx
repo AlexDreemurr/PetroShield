@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import styled from "styled-components";
 import {
   Activity,
@@ -6,13 +7,13 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ClipboardList,
   Copy,
   DoorOpen,
   Droplets,
   EllipsisVertical,
   Flame,
   Gauge,
+  Pencil,
   Radio,
   RotateCcw,
   Search,
@@ -23,7 +24,8 @@ import {
   Zap,
 } from "lucide-react";
 import { API_BASE_URL } from "../config/api";
-import { COLORS, FONT_SIZES } from "../constants/STYLES";
+import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
+import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../services/pageDataCache";
 
 const DEVICE_TABS = [
   { key: "all", label: "全部设备" },
@@ -184,6 +186,7 @@ function normalizeApiDevice(item) {
           },
         ]
       : [],
+    raw: item,
   };
 }
 
@@ -343,7 +346,7 @@ function HealthRing({ value }) {
   );
 }
 
-function DetailDrawer({ device, onClose }) {
+function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating }) {
   const [activeTab, setActiveTab] = useState("detail");
   const [copiedField, setCopiedField] = useState(null);
   const healthScores = device.healthScores ?? [
@@ -573,15 +576,15 @@ function DetailDrawer({ device, onClose }) {
       </DrawerBody>
 
       <DrawerFooter>
-        <SecondaryAction type="button">
-          <ClipboardList size={15} />
+        <SecondaryAction type="button" onClick={onEdit} disabled={isMutating}>
+          <Pencil size={15} />
           编辑设备
         </SecondaryAction>
         <SecondaryAction type="button">
           <RotateCcw size={15} />
           重启设备
         </SecondaryAction>
-        <DangerAction type="button">
+        <DangerAction type="button" onClick={onDelete} disabled={isMutating}>
           <Trash2 size={15} />
           删除设备
         </DangerAction>
@@ -590,15 +593,169 @@ function DetailDrawer({ device, onClose }) {
   );
 }
 
+function DeviceEditDialog({ device, areas, busy, error, onClose, onSubmit }) {
+  const raw = device.raw ?? {};
+  const [form, setForm] = useState({
+    name: raw.name ?? device.name,
+    type: raw.type ?? device.type,
+    category: raw.category ?? "感知设备",
+    model: raw.model ?? "",
+    manufacturer: raw.manufacturer ?? "",
+    serial_number: raw.serial_number ?? "",
+    install_date: raw.install_date?.slice(0, 10) ?? "",
+    region_id: raw.region_id ?? "",
+    location_zone: raw.location?.zone ?? raw.area_name ?? "",
+    realtime_status: raw.realtime?.status ?? device.status,
+  });
+
+  const updateField = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const submit = (event) => {
+    event.preventDefault();
+    if (!form.name.trim() || !form.type.trim() || !form.category.trim()) return;
+    onSubmit({
+      name: form.name.trim(),
+      type: form.type.trim(),
+      category: form.category.trim(),
+      model: form.model.trim() || null,
+      manufacturer: form.manufacturer.trim() || null,
+      serial_number: form.serial_number.trim() || null,
+      install_date: form.install_date
+        ? new Date(`${form.install_date}T00:00:00+08:00`).toISOString()
+        : null,
+      region_id: form.region_id || null,
+      location: {
+        ...(raw.location ?? {}),
+        zone: form.location_zone.trim() || null,
+      },
+      realtime_status: form.realtime_status,
+    });
+  };
+
+  return (
+    <ModalBackdrop role="presentation">
+      <EditDialog role="dialog" aria-modal="true" aria-label="编辑设备">
+        <DialogHeader>
+          <div>
+            <strong>编辑设备</strong>
+            <span>{device.id}</span>
+          </div>
+          <CloseDrawerButton type="button" aria-label="关闭编辑设备" onClick={onClose}>
+            <X size={18} />
+          </CloseDrawerButton>
+        </DialogHeader>
+        <DeviceForm onSubmit={submit}>
+          <FormGrid>
+            <FormField>
+              <span>设备名称</span>
+              <input value={form.name} onChange={(event) => updateField("name", event.target.value)} />
+            </FormField>
+            <FormField>
+              <span>设备类型</span>
+              <input value={form.type} onChange={(event) => updateField("type", event.target.value)} />
+            </FormField>
+            <FormField>
+              <span>设备分类</span>
+              <select value={form.category} onChange={(event) => updateField("category", event.target.value)}>
+                <option value="感知设备">感知设备</option>
+                <option value="生产设备">生产设备</option>
+                <option value="安防设备">安防设备</option>
+                <option value="定位设备">定位设备</option>
+              </select>
+            </FormField>
+            <FormField>
+              <span>运行状态</span>
+              <select value={form.realtime_status} onChange={(event) => updateField("realtime_status", event.target.value)}>
+                <option value="online">在线</option>
+                <option value="offline">离线</option>
+                <option value="alarm">告警</option>
+                <option value="fault">异常</option>
+                <option value="maintenance">维护</option>
+              </select>
+            </FormField>
+            <FormField>
+              <span>设备型号</span>
+              <input value={form.model} onChange={(event) => updateField("model", event.target.value)} />
+            </FormField>
+            <FormField>
+              <span>生产厂商</span>
+              <input value={form.manufacturer} onChange={(event) => updateField("manufacturer", event.target.value)} />
+            </FormField>
+            <FormField>
+              <span>序列号</span>
+              <input value={form.serial_number} onChange={(event) => updateField("serial_number", event.target.value)} />
+            </FormField>
+            <FormField>
+              <span>安装日期</span>
+              <input type="date" value={form.install_date} onChange={(event) => updateField("install_date", event.target.value)} />
+            </FormField>
+            <FormField>
+              <span>所属区域</span>
+              <select value={form.region_id} onChange={(event) => updateField("region_id", event.target.value)}>
+                <option value="">未关联区域</option>
+                {areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
+              </select>
+            </FormField>
+            <FormField>
+              <span>安装位置</span>
+              <input value={form.location_zone} onChange={(event) => updateField("location_zone", event.target.value)} />
+            </FormField>
+          </FormGrid>
+          {error && <DialogError>{error}</DialogError>}
+          <DialogActions>
+            <SecondaryAction type="button" onClick={onClose} disabled={busy}>取消</SecondaryAction>
+            <PrimaryAction type="submit" disabled={busy}>{busy ? "保存中" : "保存修改"}</PrimaryAction>
+          </DialogActions>
+        </DeviceForm>
+      </EditDialog>
+    </ModalBackdrop>
+  );
+}
+
+function DeviceDeleteDialog({ device, busy, error, onClose, onConfirm }) {
+  return (
+    <ModalBackdrop role="presentation">
+      <DeleteDialog role="alertdialog" aria-modal="true" aria-label="删除设备">
+        <DeleteIcon><Trash2 size={20} /></DeleteIcon>
+        <strong>删除设备“{device.name}”？</strong>
+        <p>设备实时状态、维护记录和合规记录将一并删除，人员绑定与历史告警会解除该设备关联。</p>
+        {error && <DialogError>{error}</DialogError>}
+        <DialogActions>
+          <SecondaryAction type="button" onClick={onClose} disabled={busy}>取消</SecondaryAction>
+          <ConfirmDeleteButton type="button" onClick={onConfirm} disabled={busy}>
+            {busy ? "删除中" : "确认删除"}
+          </ConfirmDeleteButton>
+        </DialogActions>
+      </DeleteDialog>
+    </ModalBackdrop>
+  );
+}
+
 function DeviceManagement() {
-  const [devices, setDevices] = useState([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
+  const [searchParams] = useSearchParams();
+  const initialPayload = getCachedJson(PAGE_DATA_URLS.devices);
+  const initialAreaPayload = getCachedJson(PAGE_DATA_URLS.areas);
+  const [devices, setDevices] = useState(() =>
+    (initialPayload?.items ?? []).map(normalizeApiDevice)
+  );
+  const [selectedDeviceId, setSelectedDeviceId] = useState(
+    () => searchParams.get("device_id") || null
+  );
+  const [editDevice, setEditDevice] = useState(null);
+  const [deleteDevice, setDeleteDevice] = useState(null);
+  const [isMutating, setIsMutating] = useState(false);
+  const [mutationError, setMutationError] = useState("");
+  const [areaOptions, setAreaOptions] = useState(
+    () => initialAreaPayload?.items ?? []
+  );
   const [activeTab, setActiveTab] = useState("all");
   const [keyword, setKeyword] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSizeInput, setPageSizeInput] = useState(String(DEFAULT_PAGE_SIZE));
   const [jumpPageInput, setJumpPageInput] = useState("1");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => !initialPayload);
   const [hasError, setHasError] = useState(false);
   const [filters, setFilters] = useState({
     type: "all",
@@ -610,23 +767,24 @@ function DeviceManagement() {
     let isMounted = true;
 
     async function loadDevices() {
+      const cachedPayload = getCachedJson(PAGE_DATA_URLS.devices);
+      if (cachedPayload) {
+        setDevices((cachedPayload.items ?? []).map(normalizeApiDevice));
+        setIsLoading(false);
+      }
       try {
-        setIsLoading(true);
+        setIsLoading(!cachedPayload);
         setHasError(false);
-        const response = await fetch(`${API_BASE_URL}/devices/overview`);
-
-        if (!response.ok) {
-          throw new Error("Failed to load devices");
-        }
-
-        const data = await response.json();
+        const data = await loadCachedJson(PAGE_DATA_URLS.devices, {
+          force: Boolean(cachedPayload),
+        });
         const apiDevices = (data.items ?? []).map(normalizeApiDevice);
 
         if (isMounted) {
           setDevices(apiDevices);
         }
       } catch {
-        if (isMounted) {
+        if (isMounted && !cachedPayload) {
           setHasError(true);
           setDevices([]);
         }
@@ -643,6 +801,28 @@ function DeviceManagement() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    loadCachedJson(PAGE_DATA_URLS.areas)
+      .then((data) => {
+        if (isMounted) setAreaOptions(data.items ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const requestedDeviceId = searchParams.get("device_id");
+    if (
+      requestedDeviceId &&
+      devices.some((device) => device.id === requestedDeviceId)
+    ) {
+      setSelectedDeviceId(requestedDeviceId);
+    }
+  }, [devices, searchParams]);
 
   const displayedDevices = useMemo(
     () => filterDevices(devices, filters, activeTab, keyword),
@@ -703,6 +883,68 @@ function DeviceManagement() {
 
     setPageSizeInput(String(nextSize));
     setCurrentPage(1);
+  }
+
+  async function refreshDeviceList() {
+    const data = await loadCachedJson(PAGE_DATA_URLS.devices, { force: true });
+    const nextDevices = (data.items ?? []).map(normalizeApiDevice);
+    setDevices(nextDevices);
+    return nextDevices;
+  }
+
+  async function parseMutationError(response, fallback) {
+    try {
+      const payload = await response.json();
+      return payload.detail || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  async function handleUpdateDevice(payload) {
+    if (!editDevice || isMutating) return;
+    setIsMutating(true);
+    setMutationError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/devices/${editDevice.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error(await parseMutationError(response, "设备信息保存失败"));
+      }
+      await refreshDeviceList();
+      setEditDevice(null);
+    } catch (error) {
+      setMutationError(error.message || "设备信息保存失败");
+    } finally {
+      setIsMutating(false);
+    }
+  }
+
+  async function handleDeleteDevice() {
+    if (!deleteDevice || isMutating) return;
+    setIsMutating(true);
+    setMutationError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/devices/${deleteDevice.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error(await parseMutationError(response, "设备删除失败"));
+      }
+      setDevices((current) =>
+        current.filter((device) => device.id !== deleteDevice.id)
+      );
+      setSelectedDeviceId(null);
+      setDeleteDevice(null);
+      await refreshDeviceList();
+    } catch (error) {
+      setMutationError(error.message || "设备删除失败");
+    } finally {
+      setIsMutating(false);
+    }
   }
 
   return (
@@ -899,6 +1141,35 @@ function DeviceManagement() {
         <DetailDrawer
           device={selectedDevice}
           onClose={() => setSelectedDeviceId(null)}
+          onEdit={() => {
+            setMutationError("");
+            setEditDevice(selectedDevice);
+          }}
+          onDelete={() => {
+            setMutationError("");
+            setDeleteDevice(selectedDevice);
+          }}
+          isMutating={isMutating}
+        />
+      ) : null}
+      {editDevice ? (
+        <DeviceEditDialog
+          key={editDevice.id}
+          device={editDevice}
+          areas={areaOptions}
+          busy={isMutating}
+          error={mutationError}
+          onClose={() => !isMutating && setEditDevice(null)}
+          onSubmit={handleUpdateDevice}
+        />
+      ) : null}
+      {deleteDevice ? (
+        <DeviceDeleteDialog
+          device={deleteDevice}
+          busy={isMutating}
+          error={mutationError}
+          onClose={() => !isMutating && setDeleteDevice(null)}
+          onConfirm={handleDeleteDevice}
         />
       ) : null}
     </PageShell>
@@ -924,14 +1195,16 @@ const ContentColumn = styled.div`
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 12px;
-  padding: 20px 22px 10px;
+  padding: ${BUSINESS_PAGE_LAYOUT.padding};
   overflow: hidden;
 `;
 
 const PageTitle = styled.h1`
+  margin: 0;
   color: ${COLORS.gray10};
   font-size: ${FONT_SIZES.peoplePageTitle};
   font-weight: 700;
+  line-height: ${BUSINESS_PAGE_LAYOUT.titleLineHeight};
 `;
 
 const FilterBar = styled.div`
@@ -1752,11 +2025,156 @@ const SecondaryAction = styled.button`
   background: white;
   font-size: ${FONT_SIZES.peopleSearchInput};
   font-weight: 700;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
 `;
 
 const DangerAction = styled(SecondaryAction)`
   border-color: hsl(0 83% 70%);
   color: hsl(0 83% 55%);
+`;
+
+const ModalBackdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: hsl(218 30% 12% / 0.42);
+`;
+
+const EditDialog = styled.div`
+  width: min(620px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 1px solid hsl(220 15% 88%);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 20px 55px hsl(218 30% 12% / 0.24);
+`;
+
+const DialogHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 17px 20px;
+  border-bottom: 1px solid hsl(220 15% 91%);
+
+  > div {
+    display: grid;
+    gap: 3px;
+  }
+
+  strong {
+    color: hsl(218 24% 18%);
+    font-size: 17px;
+  }
+
+  span {
+    color: hsl(218 10% 52%);
+    font-size: 12px;
+  }
+`;
+
+const DeviceForm = styled.form`
+  padding: 18px 20px 20px;
+`;
+
+const FormGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+`;
+
+const FormField = styled.label`
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: hsl(218 13% 38%);
+  font-size: 13px;
+  font-weight: 600;
+
+  input,
+  select {
+    box-sizing: border-box;
+    width: 100%;
+    height: 36px;
+    border: 1px solid hsl(220 14% 84%);
+    border-radius: 5px;
+    padding: 0 10px;
+    outline: none;
+    color: hsl(218 20% 20%);
+    background: white;
+    font: inherit;
+    font-weight: 500;
+  }
+
+  input:focus,
+  select:focus {
+    border-color: hsl(216 92% 58%);
+    box-shadow: 0 0 0 2px hsl(216 92% 58% / 0.12);
+  }
+`;
+
+const DialogError = styled.div`
+  margin-top: 14px;
+  border-radius: 5px;
+  padding: 9px 11px;
+  color: hsl(0 72% 43%);
+  background: hsl(0 88% 97%);
+  font-size: 13px;
+`;
+
+const DialogActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+
+  > button {
+    min-width: 96px;
+  }
+`;
+
+const DeleteDialog = styled.div`
+  width: min(410px, calc(100vw - 48px));
+  border-radius: 8px;
+  padding: 24px;
+  background: white;
+  box-shadow: 0 20px 55px hsl(218 30% 12% / 0.24);
+
+  > strong {
+    display: block;
+    margin-top: 14px;
+    color: hsl(218 24% 18%);
+    font-size: 17px;
+  }
+
+  > p {
+    margin: 9px 0 0;
+    color: hsl(218 10% 45%);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+`;
+
+const DeleteIcon = styled.div`
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: hsl(0 78% 52%);
+  background: hsl(0 88% 96%);
+`;
+
+const ConfirmDeleteButton = styled(SecondaryAction)`
+  border-color: hsl(0 72% 54%);
+  color: white;
+  background: hsl(0 72% 54%);
 `;
 
 export default DeviceManagement;

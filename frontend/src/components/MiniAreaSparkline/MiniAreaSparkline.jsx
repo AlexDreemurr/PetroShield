@@ -4,11 +4,19 @@ import styled from "styled-components";
 function buildSmoothPath(points) {
   if (points.length === 0) return "";
   if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const clampY = (value) => Math.min(maxY, Math.max(minY, value));
 
-  return points.slice(1).reduce((path, point, index) => {
-    const previous = points[index];
-    const midpointX = (previous.x + point.x) / 2;
-    return `${path} Q ${previous.x} ${previous.y} ${midpointX} ${(previous.y + point.y) / 2} T ${point.x} ${point.y}`;
+  return points.slice(0, -1).reduce((path, point, index) => {
+    const previous = points[index - 1] ?? point;
+    const next = points[index + 1];
+    const following = points[index + 2] ?? next;
+    const control1X = point.x + (next.x - previous.x) / 6;
+    const control1Y = clampY(point.y + (next.y - previous.y) / 6);
+    const control2X = next.x - (following.x - point.x) / 6;
+    const control2Y = clampY(next.y - (following.y - point.y) / 6);
+    return `${path} C ${control1X} ${control1Y} ${control2X} ${control2Y} ${next.x} ${next.y}`;
   }, `M ${points[0].x} ${points[0].y}`);
 }
 

@@ -1,14 +1,14 @@
 -- 最近 7 天人员健康观测模拟数据。
--- 依赖 seed.sql 中的 person-001 至 person-025，并可重复执行。
+-- 依赖 seed.sql 中的 person-001 至 person-050，并可重复执行。
 
 do $$
 begin
   if (
     select count(*)
     from public.person
-    where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$'
-  ) <> 25 then
-    raise exception 'seed_person_health.sql 依赖 seed.sql 中的 person-001 至 person-025，请先执行 seed.sql';
+    where id ~ '^person-(00[1-9]|0[1-4][0-9]|050)$'
+  ) <> 50 then
+    raise exception 'seed_person_health.sql 依赖 seed.sql 中的 person-001 至 person-050，请先执行 seed.sql';
   end if;
 end;
 $$;
@@ -23,7 +23,7 @@ select
   exposure_level,
   location_zone
 from public.person
-where id ~ '^person-(00[1-9]|01[0-9]|02[0-5])$';
+where id ~ '^person-(00[1-9]|0[1-4][0-9]|050)$';
 
 -- 固定 day_offset ID 的日期会随执行日移动；先清理上一批，避免与
 -- unique(person_id, observation_time) 在刷新过程中产生临时冲突。
@@ -66,7 +66,7 @@ health_samples as (
         c.anchor_date::timestamp
         - make_interval(days => d.value)
         + time '06:00:00'
-        + make_interval(mins => sp.person_order * 25)
+        + make_interval(mins => sp.person_order * 12)
       ) at time zone 'Asia/Shanghai'
     end as observation_time,
     case

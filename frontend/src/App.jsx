@@ -10,6 +10,7 @@ import RiskControl from "./pages/RiskControl";
 import VideoAI from "./pages/VideoAI";
 import StatisticsAnalysis from "./pages/StatisticsAnalysis";
 import StatisticsPlaceholder from "./pages/StatisticsPlaceholder";
+import RiskEventTraceability from "./pages/RiskEventTraceability";
 import SystemManagement from "./pages/SystemManagement";
 import styled from "styled-components";
 
@@ -34,7 +35,7 @@ function App() {
           />
           <Route
             path="/statistics-analysis/risk-events"
-            element={<StatisticsPlaceholder title="风险事件追溯" />}
+            element={<RiskEventTraceability />}
           />
           <Route
             path="/statistics-analysis/alarm-stats"

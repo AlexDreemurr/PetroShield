@@ -1,74 +1,26 @@
-insert into public.area (
-  id, name, type, polygon, center, radius, rule_config, risk_level, enable
-) values
-  (
-    'area-tank-a',
-    'A区储罐围栏',
-    '危险',
-    '[{"x": 120.0, "y": 80.0}, {"x": 260.0, "y": 80.0}, {"x": 260.0, "y": 210.0}, {"x": 120.0, "y": 210.0}]'::jsonb,
-    '{"x": 190.0, "y": 145.0, "floor": 0}'::jsonb,
-    null,
-    '{"entry": "restricted", "max_stay_minutes": 20, "max_people": 12, "alarm_on_cross": true}'::jsonb,
-    '高',
-    true
-  ),
-  (
-    'area-loading-b',
-    'B区装卸作业区',
-    '限制',
-    '[{"x": 300.0, "y": 120.0}, {"x": 430.0, "y": 120.0}, {"x": 430.0, "y": 260.0}, {"x": 300.0, "y": 260.0}]'::jsonb,
-    '{"x": 365.0, "y": 190.0, "floor": 0}'::jsonb,
-    null,
-    '{"entry": "permit_required", "ppe_required": true, "alarm_on_cross": true}'::jsonb,
-    '中',
-    true
-  ),
-  (
-    'area-office',
-    '综合办公区',
-    '普通',
-    '[{"x": 40.0, "y": 40.0}, {"x": 105.0, "y": 40.0}, {"x": 105.0, "y": 105.0}, {"x": 40.0, "y": 105.0}]'::jsonb,
-    '{"x": 72.5, "y": 72.5, "floor": 1}'::jsonb,
-    null,
-    '{"entry": "allowed", "alarm_on_cross": false}'::jsonb,
-    '低',
-    true
-  ),
-  (
-    'area-pump-c',
-    'C区泵房',
-    '限制',
-    '[{"x": 500.0, "y": 300.0}, {"x": 610.0, "y": 300.0}, {"x": 610.0, "y": 395.0}, {"x": 500.0, "y": 395.0}]'::jsonb,
-    '{"x": 555.0, "y": 347.5, "floor": 0}'::jsonb,
-    null,
-    '{"entry": "authorized_only", "max_stay_minutes": 45, "alarm_on_cross": true}'::jsonb,
-    '中',
-    true
-  )
-on conflict (id) do update set
-  name = excluded.name,
-  type = excluded.type,
-  polygon = excluded.polygon,
-  center = excluded.center,
-  radius = excluded.radius,
-  rule_config = excluded.rule_config,
-  risk_level = excluded.risk_level,
-  enable = excluded.enable;
+-- 区域由风险管控页面维护。Seed 只消费当前区域，绝不创建或覆盖区域。
+do $$
+begin
+  if not exists (select 1 from public.area where enable is not false) then
+    raise exception '请先在风险管控页面创建并启用至少一个区域，再运行通用 seed';
+  end if;
+end;
+$$;
 
 insert into public.device (
   id, name, type, category, model, manufacturer, serial_number, install_date, region_id, location
 ) values
   (
     'dev-uwb-bs-a01',
-    'A区UWB基站01',
+    'UWB定位基站01',
     'UWB',
     '感知设备',
     'UWB-BS-2000',
     '华测安全',
     'UWB-A01-2026',
     '2026-01-12 08:00:00+08',
-    'area-tank-a',
-    '{"x": 122.0, "y": 82.0, "z": 8.0, "zone": "A区储罐围栏"}'::jsonb
+    null,
+    '{"z": 8.0}'::jsonb
   ),
   (
     'dev-uwb-tag-p001',
@@ -79,8 +31,8 @@ insert into public.device (
     '华测安全',
     'TAG-P001',
     '2026-02-01 09:30:00+08',
-    'area-office',
-    '{"x": 66.0, "y": 70.0, "z": 1.2, "zone": "综合办公区"}'::jsonb
+    null,
+    '{"z": 1.2}'::jsonb
   ),
   (
     'dev-uwb-tag-p002',
@@ -91,68 +43,68 @@ insert into public.device (
     '华测安全',
     'TAG-P002',
     '2026-02-01 09:35:00+08',
-    'area-loading-b',
-    '{"x": 330.0, "y": 160.0, "z": 1.2, "zone": "B区装卸作业区"}'::jsonb
+    null,
+    '{"z": 1.2}'::jsonb
   ),
   (
     'dev-camera-a01',
-    'A区防爆摄像头01',
+    '防爆摄像头01',
     '摄像头',
     '安防设备',
     'EX-CAM-4K',
     '海安视觉',
     'CAM-A01-2026',
     '2026-01-15 14:00:00+08',
-    'area-tank-a',
-    '{"x": 190.0, "y": 82.0, "z": 6.5, "view": "储罐北侧"}'::jsonb
+    null,
+    '{"z": 6.5, "view": "区域全景"}'::jsonb
   ),
   (
     'dev-camera-b02',
-    'B区装卸摄像头02',
+    '防爆摄像头02',
     '摄像头',
     '安防设备',
     'EX-CAM-4K',
     '海安视觉',
     'CAM-B02-2026',
     '2026-01-20 10:00:00+08',
-    'area-loading-b',
-    '{"x": 365.0, "y": 122.0, "z": 5.8, "view": "装卸台"}'::jsonb
+    null,
+    '{"z": 5.8, "view": "区域全景"}'::jsonb
   ),
   (
     'dev-gas-a01',
-    'A区可燃气体探测器01',
+    '可燃气体探测器01',
     '气体探测器',
     '感知设备',
     'GAS-LEL-100',
     '安科仪表',
     'GAS-A01-2026',
     '2026-01-18 11:15:00+08',
-    'area-tank-a',
-    '{"x": 238.0, "y": 205.0, "z": 1.8, "medium": "可燃气"}'::jsonb
+    null,
+    '{"z": 1.8, "medium": "可燃气"}'::jsonb
   ),
   (
     'dev-pump-c01',
-    'C区循环泵01',
+    '循环泵01',
     '泵',
     '生产设备',
     'PUMP-CX-80',
     '中化泵业',
     'PUMP-C01-2026',
     '2026-01-25 13:20:00+08',
-    'area-pump-c',
-    '{"x": 545.0, "y": 342.0, "z": 0.0, "asset_no": "P-C-001"}'::jsonb
+    null,
+    '{"z": 0.0, "asset_no": "P-001"}'::jsonb
   ),
   (
     'dev-meter-c01',
-    'C区压力仪表01',
+    '压力仪表01',
     '仪表',
     '生产设备',
     'PRESS-60',
     '安科仪表',
     'METER-C01-2026',
     '2026-01-25 13:40:00+08',
-    'area-pump-c',
-    '{"x": 552.0, "y": 350.0, "z": 1.4, "unit": "MPa"}'::jsonb
+    null,
+    '{"z": 1.4, "unit": "MPa"}'::jsonb
   )
 on conflict (id) do update set
   name = excluded.name,
@@ -168,14 +120,14 @@ on conflict (id) do update set
 insert into public.device (
   id, name, type, category, model, manufacturer, serial_number, install_date, region_id, location
 ) values
-  ('dev-uwb-tag-p009', '人员定位标签P009', 'UWB', '感知设备', 'UWB-TAG-5', '华测安全', 'TAG-P009', '2026-03-01 09:00:00+08', 'area-tank-a', '{"x":175.0,"y":138.0,"z":1.2,"zone":"A区储罐围栏"}'::jsonb),
-  ('dev-uwb-tag-p010', '人员定位标签P010', 'UWB', '感知设备', 'UWB-TAG-5', '华测安全', 'TAG-P010', '2026-03-01 09:05:00+08', 'area-pump-c', '{"x":558.0,"y":351.0,"z":1.2,"zone":"C区泵房"}'::jsonb),
-  ('dev-camera-c03', 'C区泵房防爆摄像头03', '摄像头', '安防设备', 'EX-CAM-4K', '海安视觉', 'CAM-C03-2026', '2026-02-10 10:00:00+08', 'area-pump-c', '{"x":575.0,"y":310.0,"z":6.0,"view":"泵房全景"}'::jsonb),
-  ('dev-camera-office01', '办公区智能摄像头01', '摄像头', '安防设备', 'AI-CAM-2K', '海安视觉', 'CAM-O01-2026', '2026-02-12 10:00:00+08', 'area-office', '{"x":70.0,"y":45.0,"z":3.2,"view":"办公区入口"}'::jsonb),
-  ('dev-gas-b02', 'B区有毒气体探测器02', '气体探测器', '感知设备', 'GAS-H2S-80', '安科仪表', 'GAS-B02-2026', '2026-02-15 11:00:00+08', 'area-loading-b', '{"x":410.0,"y":230.0,"z":1.8,"medium":"硫化氢"}'::jsonb),
-  ('dev-temp-c01', 'C区温度传感器01', '温度传感器', '感知设备', 'TEMP-PT100', '安科仪表', 'TEMP-C01-2026', '2026-02-18 08:30:00+08', 'area-pump-c', '{"x":548.0,"y":340.0,"z":1.0,"unit":"℃"}'::jsonb),
-  ('dev-access-b01', 'B区防爆门禁01', '门禁', '安防设备', 'ACCESS-EX-10', '华测安全', 'ACCESS-B01-2026', '2026-02-20 14:00:00+08', 'area-loading-b', '{"x":302.0,"y":188.0,"z":1.4,"gate":"东门"}'::jsonb),
-  ('dev-drone-a01', 'A区巡检无人机01', '无人机', '感知设备', 'UAV-EX-6', '华测安全', 'UAV-A01-2026', '2026-03-02 09:00:00+08', 'area-tank-a', '{"x":190.0,"y":145.0,"z":20.0,"dock":"A区机库"}'::jsonb)
+  ('dev-uwb-tag-p009', '人员定位标签P009', 'UWB', '感知设备', 'UWB-TAG-5', '华测安全', 'TAG-P009', '2026-03-01 09:00:00+08', null, '{"z":1.2}'::jsonb),
+  ('dev-uwb-tag-p010', '人员定位标签P010', 'UWB', '感知设备', 'UWB-TAG-5', '华测安全', 'TAG-P010', '2026-03-01 09:05:00+08', null, '{"z":1.2}'::jsonb),
+  ('dev-camera-c03', '防爆摄像头03', '摄像头', '安防设备', 'EX-CAM-4K', '海安视觉', 'CAM-C03-2026', '2026-02-10 10:00:00+08', null, '{"z":6.0,"view":"区域全景"}'::jsonb),
+  ('dev-camera-office01', '智能摄像头04', '摄像头', '安防设备', 'AI-CAM-2K', '海安视觉', 'CAM-O01-2026', '2026-02-12 10:00:00+08', null, '{"z":3.2,"view":"区域入口"}'::jsonb),
+  ('dev-gas-b02', '有毒气体探测器02', '气体探测器', '感知设备', 'GAS-H2S-80', '安科仪表', 'GAS-B02-2026', '2026-02-15 11:00:00+08', null, '{"z":1.8,"medium":"硫化氢"}'::jsonb),
+  ('dev-temp-c01', '温度传感器01', '温度传感器', '感知设备', 'TEMP-PT100', '安科仪表', 'TEMP-C01-2026', '2026-02-18 08:30:00+08', null, '{"z":1.0,"unit":"℃"}'::jsonb),
+  ('dev-access-b01', '防爆门禁01', '门禁', '安防设备', 'ACCESS-EX-10', '华测安全', 'ACCESS-B01-2026', '2026-02-20 14:00:00+08', null, '{"z":1.4,"gate":"区域入口"}'::jsonb),
+  ('dev-drone-a01', '巡检无人机01', '无人机', '感知设备', 'UAV-EX-6', '华测安全', 'UAV-A01-2026', '2026-03-02 09:00:00+08', null, '{"z":20.0,"dock":"巡检机库"}'::jsonb)
 on conflict (id) do update set
   name = excluded.name,
   type = excluded.type,
@@ -186,6 +138,61 @@ on conflict (id) do update set
   install_date = excluded.install_date,
   region_id = excluded.region_id,
   location = excluded.location;
+
+-- 将所有 seed 设备均匀映射到用户当前划定的启用区域，并使用区域几何中心附近坐标。
+with area_geometry as (
+  select
+    area.id,
+    area.name,
+    row_number() over (order by area.create_time, area.id)::integer as area_order,
+    count(*) over ()::integer as area_count,
+    coalesce(
+      nullif(area.center ->> 'x', '')::double precision,
+      (select avg((point ->> 'x')::double precision) from jsonb_array_elements(area.polygon) point),
+      300.0
+    ) as center_x,
+    coalesce(
+      nullif(area.center ->> 'y', '')::double precision,
+      (select avg((point ->> 'y')::double precision) from jsonb_array_elements(area.polygon) point),
+      220.0
+    ) as center_y
+  from public.area area
+  where area.enable is not false
+),
+seeded_device as (
+  select
+    device.id,
+    row_number() over (order by device.id)::integer as device_order
+  from public.device device
+  where device.id in (
+    'dev-uwb-bs-a01', 'dev-uwb-tag-p001', 'dev-uwb-tag-p002',
+    'dev-camera-a01', 'dev-camera-b02', 'dev-gas-a01', 'dev-pump-c01',
+    'dev-meter-c01', 'dev-uwb-tag-p009', 'dev-uwb-tag-p010',
+    'dev-camera-c03', 'dev-camera-office01', 'dev-gas-b02', 'dev-temp-c01',
+    'dev-access-b01', 'dev-drone-a01'
+  )
+),
+device_area as (
+  select
+    device.id as device_id,
+    area.id as area_id,
+    area.name as area_name,
+    area.center_x + (((device.device_order - 1) % 3) - 1) * 3.0 as x,
+    area.center_y + ((((device.device_order - 1) / 3) % 3) - 1) * 3.0 as y
+  from seeded_device device
+  join area_geometry area
+    on area.area_order = ((device.device_order - 1) % area.area_count) + 1
+)
+update public.device device
+set
+  region_id = mapping.area_id,
+  location = coalesce(device.location, '{}'::jsonb) || jsonb_build_object(
+    'x', mapping.x,
+    'y', mapping.y,
+    'zone', mapping.area_name
+  )
+from device_area mapping
+where device.id = mapping.device_id;
 
 insert into public.person (
   id, name, gender, type, department, position, company, id_card, phone,
@@ -587,6 +594,133 @@ on conflict (id) do update set
   near_miss_count = excluded.near_miss_count, safety_score = excluded.safety_score,
   remark = excluded.remark;
 
+-- 人员跟随绑定设备所在区域；未绑定设备的人员按当前启用区域均匀分配。
+-- 补齐至 50 名模拟人员。人员所在区域在下方按当前启用区域重新分配。
+with generated_person as (
+  select
+    format('person-%s', lpad(person_number::text, 3, '0')) as id,
+    (array[
+      '周晨','苏倩','罗峰','蒋宁','何伟','陆雪','金涛','方敏','袁杰','夏琳',
+      '戴强','孔悦','顾明','任佳','施磊','姚静','邵勇','汪婷','钱坤','余欣',
+      '熊凯','白璐','潘浩','侯敏','江波'
+    ])[person_number - 25] as name,
+    person_number
+  from generate_series(26, 50) as generated(person_number)
+)
+insert into public.person (
+  id, name, gender, type, department, position, company, id_card, phone,
+  device_id, device_type, bind_time, location_zone, status, risk_level,
+  access_status, last_active_time, safety_tag, training_status,
+  training_score, last_training_time, certificate_status, health_status,
+  health_risk_level, last_medical_check, occupational_disease_flag,
+  exposure_level, performance_score, violation_count, reward_count,
+  near_miss_count, safety_score, remark
+)
+select
+  generated.id,
+  generated.name,
+  case when generated.person_number % 3 = 0 then '女' else '男' end,
+  case when generated.person_number % 8 = 0 then '承包商' else '员工' end,
+  (array['生产一部','生产二部','设备部','仪表部','HSE部','质检部'])[
+    ((generated.person_number - 26) % 6) + 1
+  ],
+  (array['巡检员','操作工','维修工','仪表工','安全员','化验员'])[
+    ((generated.person_number - 26) % 6) + 1
+  ],
+  case when generated.person_number % 8 = 0 then '安维检修有限公司' else '石化厂' end,
+  'MOCK-' || upper(generated.id),
+  '13800000' || right(generated.id, 3),
+  null,
+  null,
+  null,
+  null,
+  case when generated.person_number in (31, 44) then '风险' else '正常' end,
+  case when generated.person_number in (31, 44) then '高'
+       when generated.person_number % 7 = 0 then '中' else '低' end,
+  case when generated.person_number in (31, 44) then '限制' else '允许' end,
+  now() - make_interval(mins => generated.person_number),
+  case when generated.person_number in (31, 44) then '高危作业' else '普通作业' end,
+  '合格',
+  (72 + generated.person_number % 25)::double precision,
+  now() - make_interval(days => generated.person_number),
+  '有效',
+  case when generated.person_number in (31, 44) then '限制'
+       when generated.person_number % 7 = 0 then '关注' else '正常' end,
+  case when generated.person_number in (31, 44) then '高'
+       when generated.person_number % 7 = 0 then '中' else '低' end,
+  now() - make_interval(days => 30 + generated.person_number),
+  generated.person_number in (31, 44),
+  (array['化学','噪声','粉尘',null])[((generated.person_number - 26) % 4) + 1],
+  (70 + generated.person_number % 27)::double precision,
+  case when generated.person_number in (31, 44) then 1 else 0 end,
+  1,
+  case when generated.person_number % 7 = 0 then 1 else 0 end,
+  (72 + generated.person_number % 26)::double precision,
+  '扩展模拟人员数据'
+from generated_person generated
+on conflict (id) do update set
+  name = excluded.name,
+  gender = excluded.gender,
+  type = excluded.type,
+  department = excluded.department,
+  position = excluded.position,
+  company = excluded.company,
+  id_card = excluded.id_card,
+  phone = excluded.phone,
+  location_zone = excluded.location_zone,
+  status = excluded.status,
+  risk_level = excluded.risk_level,
+  access_status = excluded.access_status,
+  last_active_time = excluded.last_active_time,
+  safety_tag = excluded.safety_tag,
+  training_status = excluded.training_status,
+  training_score = excluded.training_score,
+  last_training_time = excluded.last_training_time,
+  certificate_status = excluded.certificate_status,
+  health_status = excluded.health_status,
+  health_risk_level = excluded.health_risk_level,
+  last_medical_check = excluded.last_medical_check,
+  occupational_disease_flag = excluded.occupational_disease_flag,
+  exposure_level = excluded.exposure_level,
+  performance_score = excluded.performance_score,
+  violation_count = excluded.violation_count,
+  reward_count = excluded.reward_count,
+  near_miss_count = excluded.near_miss_count,
+  safety_score = excluded.safety_score,
+  remark = excluded.remark;
+
+with enabled_area as (
+  select
+    area.id,
+    area.name,
+    row_number() over (order by area.create_time, area.id)::integer as area_order,
+    count(*) over ()::integer as area_count
+  from public.area area
+  where area.enable is not false
+),
+seeded_person as (
+  select
+    person.id,
+    person.device_id,
+    row_number() over (order by person.id)::integer as person_order
+  from public.person person
+  where person.id ~ '^person-(00[1-9]|0[1-4][0-9]|050)$'
+),
+person_area as (
+  select
+    person.id as person_id,
+    coalesce(bound_area.name, fallback_area.name) as area_name
+  from seeded_person person
+  left join public.device bound_device on bound_device.id = person.device_id
+  left join enabled_area bound_area on bound_area.id = bound_device.region_id
+  join enabled_area fallback_area
+    on fallback_area.area_order = ((person.person_order - 1) % fallback_area.area_count) + 1
+)
+update public.person person
+set location_zone = mapping.area_name
+from person_area mapping
+where person.id = mapping.person_id;
+
 insert into public.device_realtime (
   device_id, status, battery, signal_strength, cpu_usage, temperature, last_heartbeat, health_score
 ) values
@@ -668,6 +802,10 @@ on conflict (device_id) do update set
   certificate_no = excluded.certificate_no,
   risk_level = excluded.risk_level;
 
+-- 旧版固定区域告警和位置仅保留为历史样例，不再参与任何 seed 执行。
+do $legacy_fixed_space_seed$
+begin
+if false then
 insert into public.alarm (
   id, type, level, location, "time", status, person_id, device_id,
   confidence, description, evidence
@@ -791,3 +929,6 @@ on conflict (id) do update set
   "timestamp" = excluded."timestamp",
   speed = excluded.speed,
   direction = excluded.direction;
+end if;
+end;
+$legacy_fixed_space_seed$;

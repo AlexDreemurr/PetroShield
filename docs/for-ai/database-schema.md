@@ -430,10 +430,11 @@ sql_paths = [
 
 基础演示数据：
 
-- 4 个区域。
-- 25 名人员。
+- 不创建区域，要求风险管控页面中至少已有一个启用区域。
+- 50 名人员。
 - 16 台设备。
-- 设备实时快照、维护、合规、基础告警、基础位置等。
+- 人员和设备会按当前启用区域重新分配，设备坐标来自区域几何中心附近。
+- 设备实时快照、维护和合规等。
 
 ### `seed_person_positions.sql`
 
@@ -441,9 +442,9 @@ sql_paths = [
 
 - 依赖 `person` 和 `person_position_current`。
 - 先删除 `position.id like 'pos-seed-%'` 的旧 seed 轨迹。
-- 按当前 `person` 实际集合动态生成，不硬编码 25 人。
-- 每人最近 5 分钟、每秒 1 条，共 300 条；25 人时约 7,500 条。
-- 路径是 1 到 6 段随机折线，适合前端人员管理地图展示轨迹、箭头和拐点。
+- 按 50 名种子人员动态生成。
+- 每人最近 5 分钟、每秒 1 条，共 300 条；50 人时共 15,000 条。
+- 轨迹中心及活动范围取自人员当前区域的圆形或多边形几何。
 - 插入 `position` 后通过触发器同步 `person_position_current`，最后也显式调用 `sync_person_position_current(id)` 作为保险。
 
 ### `seed_alarms.sql`
@@ -451,6 +452,7 @@ sql_paths = [
 告警趋势演示数据：
 
 - 相对当前日期生成，适合展示近 1/3/7/30 天告警趋势。
+- 人员、设备、区域和坐标均从运行时数据库动态选择，不依赖固定区域 ID。
 - 只应清理/覆盖 seed 自己生成的演示告警，避免误删真实数据。
 
 ### `seed_person_health.sql`
@@ -458,7 +460,7 @@ sql_paths = [
 人员健康观测演示数据：
 
 - 约 7 天范围。
-- 当前 25 人时约 175 条观测。
+- 当前 50 人时共 350 条观测。
 - 最新观测会通过触发器同步回 `person` 健康字段。
 
 ### `seed_device_realtime_observation.sql`
@@ -517,6 +519,18 @@ sql_paths = [
 
 - `frontend/src/pages/PeopleManagement.jsx`
 - `frontend/src/components/PeopleLocationMap/PeopleLocationMap.jsx`
+
+### 告警 AI 处置建议
+
+`alarm_ai_advice` 保存告警确认后生成的处置建议。除兼容前端展示的 `content` 外，还保存：
+
+- `structured_content`：经 Pydantic 校验的结构化流程。
+- `source`、`model`、`prompt_version`：模型与提示词版本审计信息。
+- `generation_status`：`completed` 或 `fallback`。
+- `error_message`：调用失败原因，不包含 API Key。
+- `provider_request_id`、`usage`、`latency_ms`：供应商请求与用量信息。
+
+迁移：`20260719000100_extend_alarm_ai_advice.sql`。后端服务为 `backend/app/services/deepseek_alarm_advisor.py`。外部模型调用发生在确认事务提交之后，失败时写入规则降级建议，不回滚告警状态。
 
 ## 7. 修改数据库时的检查清单
 

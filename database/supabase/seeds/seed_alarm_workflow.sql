@@ -60,8 +60,8 @@ insert into public.alarm_assignment (
 )
 select
   alarm.id || '-assignment', alarm.id,
-  case when alarm.type = '设备异常' then 'person-005' else 'person-002' end,
-  case when alarm.type = '设备异常' then '设备部' else 'HSE部' end,
+  assignee.id,
+  assignee.department,
   case when alarm.level = '重大' then 'urgent' when alarm.level = '严重' then 'high' else 'medium' end,
   '到场核实告警，控制风险并反馈现场处置结果',
   alarm."time" + interval '40 minutes',
@@ -71,6 +71,19 @@ select
   case when alarm.status in ('待复核', '关闭') then '现场风险已解除，关联人员和设备状态恢复正常' end,
   case when alarm.status in ('待复核', '关闭') then '[{"type":"text","name":"现场处置记录"}]'::jsonb else '[]'::jsonb end
 from public.alarm alarm
+cross join lateral (
+  select person.id, person.department
+  from public.person person
+  order by
+    case
+      when alarm.type = '设备异常' and (person.department like '%设备%' or person.position like '%维修%') then 0
+      when alarm.type <> '设备异常' and (person.department like '%HSE%' or person.position like '%安全%') then 0
+      when person.status <> '离线' then 1
+      else 2
+    end,
+    md5(person.id || ':' || alarm.id)
+  limit 1
+) assignee
 where alarm.evidence ->> 'seed_source' = 'seed_alarms.sql'
   and alarm.status in ('处理中', '待复核', '关闭');
 
@@ -80,10 +93,12 @@ insert into public.alarm_action_log (
 )
 select
   alarm.id || '-feedback', alarm.id, 'submit_feedback', '处理中', '待复核',
-  case when alarm.type = '设备异常' then '陈磊' else '李娜' end,
+  coalesce(assignee.name, '现场处置人员'),
   '现场处置人员', '现场风险已解除，提交处置记录等待复核',
   alarm."time" + interval '24 minutes'
 from public.alarm alarm
+left join public.alarm_assignment assignment on assignment.alarm_id = alarm.id
+left join public.person assignee on assignee.id = assignment.assignee_id
 where alarm.evidence ->> 'seed_source' = 'seed_alarms.sql'
   and alarm.status in ('待复核', '关闭');
 

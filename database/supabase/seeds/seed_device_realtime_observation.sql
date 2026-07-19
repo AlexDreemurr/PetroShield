@@ -26,8 +26,14 @@ with seeded_device as (
     dr.health_score
   from public.device d
   join seed_device_current_snapshot dr on dr.device_id = d.id
+  where d.id in (
+    'dev-uwb-bs-a01', 'dev-uwb-tag-p001', 'dev-uwb-tag-p002',
+    'dev-camera-a01', 'dev-camera-b02', 'dev-gas-a01', 'dev-pump-c01',
+    'dev-meter-c01', 'dev-uwb-tag-p009', 'dev-uwb-tag-p010',
+    'dev-camera-c03', 'dev-camera-office01', 'dev-gas-b02', 'dev-temp-c01',
+    'dev-access-b01', 'dev-drone-a01'
+  )
   order by d.id
-  limit 16
 ),
 seed_clock as (
   select

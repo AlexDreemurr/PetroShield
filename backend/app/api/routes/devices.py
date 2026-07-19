@@ -1,5 +1,10 @@
+import json
+from datetime import datetime
+from typing import Any, Literal
+
 import asyncpg
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.routes.dashboard import (
     create_ssl_context,
@@ -8,6 +13,34 @@ from app.api.routes.dashboard import (
 )
 
 router = APIRouter()
+
+
+class DeviceUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    type: str = Field(min_length=1, max_length=80)
+    category: str = Field(min_length=1, max_length=80)
+    model: str | None = Field(default=None, max_length=120)
+    manufacturer: str | None = Field(default=None, max_length=120)
+    serial_number: str | None = Field(default=None, max_length=120)
+    install_date: datetime | None = None
+    region_id: str | None = None
+    location: dict[str, Any] | None = None
+    realtime_status: Literal["online", "offline", "alarm", "fault", "maintenance"]
+
+    @field_validator("name", "type", "category")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("field must not be blank")
+        return stripped
+
+    @field_validator("model", "manufacturer", "serial_number")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 def isoformat_or_none(value):
@@ -45,6 +78,7 @@ async def get_devices_overview():
           d.manufacturer,
           d.serial_number,
           d.install_date,
+          d.region_id,
           d.location,
           d.created_at,
           area.name as area_name,
@@ -131,6 +165,7 @@ async def get_devices_overview():
                 "manufacturer": row["manufacturer"],
                 "serial_number": row["serial_number"],
                 "install_date": isoformat_or_none(row["install_date"]),
+                "region_id": row["region_id"],
                 "location": row["location"],
                 "created_at": isoformat_or_none(row["created_at"]),
                 "area_name": row["area_name"],
@@ -176,3 +211,116 @@ async def get_devices_overview():
             for row in rows
         ]
     }
+
+
+@router.put("/{device_id}")
+async def update_device(device_id: str, payload: DeviceUpdate):
+    database_url = get_database_url()
+    if not database_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
+        )
+
+    try:
+        connection = await asyncpg.connect(
+            database_url,
+            ssl=create_ssl_context() if should_use_ssl(database_url) else False,
+        )
+        async with connection.transaction():
+            if payload.region_id:
+                area_exists = await connection.fetchval(
+                    "select exists(select 1 from public.area where id = $1);",
+                    payload.region_id,
+                )
+                if not area_exists:
+                    raise HTTPException(status_code=422, detail="所属区域不存在")
+
+            updated_id = await connection.fetchval(
+                """
+                update public.device
+                set name = $2,
+                    type = $3,
+                    category = $4,
+                    model = $5,
+                    manufacturer = $6,
+                    serial_number = $7,
+                    install_date = $8,
+                    region_id = $9,
+                    location = $10::jsonb
+                where id = $1
+                returning id;
+                """,
+                device_id,
+                payload.name,
+                payload.type,
+                payload.category,
+                payload.model,
+                payload.manufacturer,
+                payload.serial_number,
+                payload.install_date,
+                payload.region_id,
+                json.dumps(payload.location) if payload.location is not None else None,
+            )
+            if not updated_id:
+                raise HTTPException(status_code=404, detail="设备不存在")
+
+            await connection.execute(
+                """
+                insert into public.device_realtime (device_id, status, last_heartbeat)
+                values ($1, $2, now())
+                on conflict (device_id) do update
+                set status = excluded.status,
+                    last_heartbeat = excluded.last_heartbeat;
+                """,
+                device_id,
+                payload.realtime_status,
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Failed to update device: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to update device",
+        ) from exc
+    finally:
+        if "connection" in locals():
+            await connection.close()
+
+    return {"id": device_id, "updated": True}
+
+
+@router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_device(device_id: str):
+    database_url = get_database_url()
+    if not database_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
+        )
+
+    try:
+        connection = await asyncpg.connect(
+            database_url,
+            ssl=create_ssl_context() if should_use_ssl(database_url) else False,
+        )
+        deleted_id = await connection.fetchval(
+            "delete from public.device where id = $1 returning id;",
+            device_id,
+        )
+        if not deleted_id:
+            raise HTTPException(status_code=404, detail="设备不存在")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Failed to delete device: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to delete device",
+        ) from exc
+    finally:
+        if "connection" in locals():
+            await connection.close()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

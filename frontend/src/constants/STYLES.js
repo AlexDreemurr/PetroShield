@@ -4,6 +4,11 @@ export const COLORS = {
   blue: "hsl(220 90% 50%)",
 };
 
+export const BUSINESS_PAGE_LAYOUT = {
+  padding: "12px 14px 14px",
+  titleLineHeight: 1.2,
+};
+
 const rem = (px) => `${px / 16}rem`;
 
 export const FONT_SIZES = {

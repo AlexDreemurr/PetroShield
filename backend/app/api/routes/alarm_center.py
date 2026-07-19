@@ -12,6 +12,7 @@ from app.api.routes.risk_control import (
     connect_database,
     decode_json,
 )
+from app.services.deepseek_alarm_advisor import generate_alarm_advice
 
 router = APIRouter()
 
@@ -45,6 +46,7 @@ def build_subject(row: asyncpg.Record) -> dict | None:
             "name": row["person_name"],
             "meta": row["person_department"] or row["person_company"],
             "position": row["person_position"],
+            "status": row["person_status"],
         }
     if row["device_id"]:
         return {
@@ -52,6 +54,8 @@ def build_subject(row: asyncpg.Record) -> dict | None:
             "id": row["device_id"],
             "name": row["device_name"],
             "meta": row["device_type"],
+            "type": row["device_type"],
+            "status": row["device_status"],
         }
     return None
 
@@ -84,13 +88,16 @@ ALARM_BASE_QUERY = """
       person.department as person_department,
       person.company as person_company,
       person.position as person_position,
+      person.status as person_status,
       device.name as device_name,
       device.type as device_type,
+      device_realtime.status as device_status,
       area.id as area_id,
       area.name as area_name
     from public.alarm alarm
     left join public.person person on person.id = alarm.person_id
     left join public.device device on device.id = alarm.device_id
+    left join public.device_realtime device_realtime on device_realtime.device_id = device.id
     left join public.area area on area.id = alarm.location ->> 'area_id'
 """
 
@@ -307,6 +314,13 @@ async def get_alarm_detail(alarm_id: str):
             assignment_row["feedback_evidence"], []
         )
     detail["ai_advice"] = dict(advice_row) if advice_row else None
+    if detail["ai_advice"]:
+        detail["ai_advice"]["structured_content"] = decode_json(
+            detail["ai_advice"].get("structured_content"), None
+        )
+        detail["ai_advice"]["usage"] = decode_json(
+            detail["ai_advice"].get("usage"), {}
+        )
     detail["logs"] = []
     for log in log_rows:
         item = dict(log)
@@ -330,6 +344,97 @@ def build_ai_advice(alarm_type: str, level: str) -> str:
     if level in {"严重", "重大"}:
         advice += " 该告警等级较高，应同步通知HSE值班负责人并设置处置时限。"
     return advice
+
+
+def build_ai_alarm_context(detail: dict, confirmation_comment: str | None) -> dict:
+    position = detail.get("position") or {}
+    return {
+        "alarm_id": detail.get("id"),
+        "alarm_type": detail.get("type"),
+        "risk_level": detail.get("level"),
+        "occurred_at": detail.get("time"),
+        "description": detail.get("description"),
+        "confirmation_comment": confirmation_comment,
+        "subject": detail.get("subject"),
+        "area": detail.get("area"),
+        "position": {
+            "x": position.get("x"),
+            "y": position.get("y"),
+            "source": position.get("source"),
+            "confidence": position.get("confidence"),
+            "timestamp": position.get("timestamp"),
+        },
+        "evidence": detail.get("evidence"),
+        "related_resources": [
+            {
+                "id": resource.get("id"),
+                "name": resource.get("name"),
+                "type": resource.get("type"),
+                "status": resource.get("status"),
+            }
+            for resource in (detail.get("resources") or [])[:8]
+        ],
+    }
+
+
+async def generate_and_store_alarm_advice(
+    alarm_id: str,
+    alarm_type: str,
+    alarm_level: str,
+    confirmation_comment: str | None,
+    action_log_id: str | None,
+) -> None:
+    detail = await get_alarm_detail(alarm_id)
+    result = await generate_alarm_advice(
+        build_ai_alarm_context(detail, confirmation_comment),
+        build_ai_advice(alarm_type, alarm_level),
+    )
+
+    connection = await connect_database()
+    try:
+        async with connection.transaction():
+            advice_id = await connection.fetchval(
+                """
+                insert into public.alarm_ai_advice (
+                  alarm_id, content, source, structured_content, model,
+                  generation_status, error_message, provider_request_id,
+                  usage, latency_ms, prompt_version
+                ) values (
+                  $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::jsonb, $10, $11
+                )
+                returning id;
+                """,
+                alarm_id,
+                result.content,
+                result.source,
+                json.dumps(result.structured_content),
+                result.model,
+                result.generation_status,
+                result.error_message,
+                result.provider_request_id,
+                json.dumps(result.usage),
+                result.latency_ms,
+                result.prompt_version,
+            )
+            if action_log_id:
+                await connection.execute(
+                    """
+                    update public.alarm_action_log
+                    set metadata = metadata || $2::jsonb
+                    where id = $1;
+                    """,
+                    action_log_id,
+                    json.dumps(
+                        {
+                            "ai_advice_id": advice_id,
+                            "ai_generation_status": result.generation_status,
+                            "ai_source": result.source,
+                            "ai_model": result.model,
+                        }
+                    ),
+                )
+    finally:
+        await connection.close()
 
 
 @router.post("/{alarm_id}/actions")
@@ -361,6 +466,9 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
     if payload.action == "dispatch" and not payload.due_time:
         raise HTTPException(status_code=422, detail="请设置要求完成时间")
 
+    action_log_id = None
+    confirmed_alarm_type = None
+    confirmed_alarm_level = None
     try:
         connection = await connect_database()
         async with connection.transaction():
@@ -378,16 +486,9 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
 
             action_metadata = {"evidence": payload.evidence}
             if payload.action == "confirm":
-                advice_id = await connection.fetchval(
-                    """
-                    insert into public.alarm_ai_advice (alarm_id, content)
-                    values ($1, $2)
-                    returning id;
-                    """,
-                    alarm_id,
-                    build_ai_advice(alarm["type"], alarm["level"]),
-                )
-                action_metadata["ai_advice_id"] = advice_id
+                confirmed_alarm_type = alarm["type"]
+                confirmed_alarm_level = alarm["level"]
+                action_metadata["ai_generation_status"] = "pending"
             elif payload.action == "dispatch":
                 due_time_is_expired = await connection.fetchval(
                     "select $1::timestamptz <= now();", payload.due_time
@@ -486,12 +587,13 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
                 alarm_id,
                 next_status,
             )
-            await connection.execute(
+            action_log_id = await connection.fetchval(
                 """
                 insert into public.alarm_action_log (
                   alarm_id, action, from_status, to_status, operator_name,
                   operator_role, comment, metadata
-                ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb);
+                ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+                returning id;
                 """,
                 alarm_id,
                 payload.action,
@@ -513,5 +615,20 @@ async def perform_alarm_action(alarm_id: str, payload: AlarmAction):
     finally:
         if "connection" in locals():
             await connection.close()
+
+    if payload.action == "confirm":
+        try:
+            await generate_and_store_alarm_advice(
+                alarm_id,
+                confirmed_alarm_type,
+                confirmed_alarm_level,
+                payload.comment,
+                action_log_id,
+            )
+        except Exception as exc:
+            print(
+                "Alarm confirmed but advice persistence failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
     return await get_alarm_detail(alarm_id)

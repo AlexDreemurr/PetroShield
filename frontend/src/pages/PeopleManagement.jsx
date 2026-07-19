@@ -1,9 +1,10 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "react-router";
 import styled from "styled-components";
 import PeopleLocationMap from "../components/PeopleLocationMap/PeopleLocationMap";
-import { API_BASE_URL } from "../config/api";
-import { COLORS, FONT_SIZES } from "../constants/STYLES";
+import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../services/pageDataCache";
+import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
 
 function formatTime(value) {
   if (!value) {
@@ -538,11 +539,15 @@ function PersonDetailModal({ person, onClose }) {
 }
 
 function PeopleManagement() {
-  const [people, setPeople] = useState([]);
+  const [searchParams] = useSearchParams();
+  const initialPayload = getCachedJson(PAGE_DATA_URLS.people);
+  const [people, setPeople] = useState(() => initialPayload?.items ?? []);
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [selectedPersonId, setSelectedPersonId] = useState(null);
+  const [selectedPersonId, setSelectedPersonId] = useState(
+    () => searchParams.get("person_id") || null
+  );
   const [modalPerson, setModalPerson] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => !initialPayload);
   const [hasError, setHasError] = useState(false);
   const [columnFilters, setColumnFilters] = useState({});
   const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
@@ -554,23 +559,24 @@ function PeopleManagement() {
     let isMounted = true;
 
     async function loadPeople() {
+      const cachedPayload = getCachedJson(PAGE_DATA_URLS.people);
+      if (cachedPayload) {
+        setPeople(cachedPayload.items ?? []);
+        setIsLoading(false);
+      }
       try {
-        setIsLoading(true);
+        setIsLoading(!cachedPayload);
         setHasError(false);
-        const response = await fetch(`${API_BASE_URL}/people/locations`);
-
-        if (!response.ok) {
-          throw new Error("Failed to load people locations");
-        }
-
-        const data = await response.json();
+        const data = await loadCachedJson(PAGE_DATA_URLS.people, {
+          force: Boolean(cachedPayload),
+        });
 
         if (isMounted) {
           setPeople(data.items ?? []);
         }
       } catch (error) {
         console.error(error);
-        if (isMounted) {
+        if (isMounted && !cachedPayload) {
           setHasError(true);
         }
       } finally {
@@ -586,6 +592,16 @@ function PeopleManagement() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const requestedPersonId = searchParams.get("person_id");
+    if (
+      requestedPersonId &&
+      people.some((person) => person.id === requestedPersonId)
+    ) {
+      setSelectedPersonId(requestedPersonId);
+    }
+  }, [people, searchParams]);
 
   useEffect(() => {
     if (!activeFilterKey) {
@@ -900,22 +916,24 @@ const PageShell = styled.div`
   grid-template-rows: auto minmax(0, 11fr) minmax(0, 9fr);
   gap: 10px;
   overflow: hidden;
-  padding: 10px 12px;
+  padding: ${BUSINESS_PAGE_LAYOUT.padding};
   background: hsl(216 26% 97%);
 `;
 
 const PageHeader = styled.div`
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
 `;
 
 const PageTitle = styled.h1`
+  margin: 0;
   color: ${COLORS.gray10};
   font-size: ${FONT_SIZES.peoplePageTitle};
   font-weight: 700;
+  line-height: ${BUSINESS_PAGE_LAYOUT.titleLineHeight};
 `;
 
 const SearchInput = styled.input`

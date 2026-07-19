@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import styled from "styled-components";
 import {
   BellRing,
@@ -23,7 +24,14 @@ import {
 } from "lucide-react";
 import RiskControlMap from "../components/RiskControlMap/RiskControlMap";
 import { API_BASE_URL } from "../config/api";
-import { COLORS, FONT_SIZES } from "../constants/STYLES";
+import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
+import {
+  getCachedJson,
+  invalidateCachedJson,
+  loadCachedJson,
+  PAGE_DATA_URLS,
+  setCachedJson,
+} from "../services/pageDataCache";
 
 const AREA_TYPES = {
   danger: { label: "危险区", tone: "red" },
@@ -142,13 +150,19 @@ function MetricCard({ icon: Icon, label, value, unit, tone }) {
 }
 
 function RiskControl() {
-  const [areas, setAreas] = useState([]);
-  const [selectedAreaId, setSelectedAreaId] = useState(null);
+  const [searchParams] = useSearchParams();
+  const initialPayload = getCachedJson(PAGE_DATA_URLS.areas);
+  const initialAreas = (initialPayload?.items ?? []).map(normalizeApiArea);
+  const requestedInitialAreaId = searchParams.get("area_id");
+  const initialSelectedArea =
+    initialAreas.find((area) => area.id === requestedInitialAreaId) ?? initialAreas[0] ?? null;
+  const [areas, setAreas] = useState(initialAreas);
+  const [selectedAreaId, setSelectedAreaId] = useState(initialSelectedArea?.id ?? null);
   const [keyword, setKeyword] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [drawMode, setDrawMode] = useState(null);
-  const [draft, setDraft] = useState(null);
-  const [isLoadingAreas, setIsLoadingAreas] = useState(true);
+  const [draft, setDraft] = useState(initialSelectedArea);
+  const [isLoadingAreas, setIsLoadingAreas] = useState(() => !initialPayload);
   const [hasAreaLoadError, setHasAreaLoadError] = useState(false);
   const [savedMessage, setSavedMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -160,30 +174,33 @@ function RiskControl() {
 
   useEffect(() => {
     let isMounted = true;
-    setIsLoadingAreas(true);
+    const cachedPayload = getCachedJson(PAGE_DATA_URLS.areas);
+    setIsLoadingAreas(!cachedPayload);
     setHasAreaLoadError(false);
 
-    fetch(`${API_BASE_URL}/risk-control/overview`)
-      .then((response) => {
-        if (!response.ok) throw new Error("Failed to load risk control data");
-        return response.json();
-      })
+    loadCachedJson(PAGE_DATA_URLS.areas, { force: Boolean(cachedPayload) })
       .then((payload) => {
         if (!isMounted) return;
         const nextAreas = (payload.items ?? []).map(normalizeApiArea);
         setAreas(nextAreas);
-        setSelectedAreaId(nextAreas[0]?.id ?? null);
-        setDraft(nextAreas[0] ?? null);
+        setSelectedAreaId((currentId) => {
+          const requestedAreaId = searchParams.get("area_id");
+          if (nextAreas.some((area) => area.id === requestedAreaId)) return requestedAreaId;
+          if (nextAreas.some((area) => area.id === currentId)) return currentId;
+          return nextAreas[0]?.id ?? null;
+        });
         if (payload.managers?.length > 0) {
           setManagerOptions(payload.managers);
         }
       })
       .catch(() => {
         if (!isMounted) return;
-        setAreas([]);
-        setSelectedAreaId(null);
-        setDraft(null);
-        setHasAreaLoadError(true);
+        if (!cachedPayload) {
+          setAreas([]);
+          setSelectedAreaId(null);
+          setDraft(null);
+          setHasAreaLoadError(true);
+        }
       })
       .finally(() => {
         if (isMounted) setIsLoadingAreas(false);
@@ -192,7 +209,7 @@ function RiskControl() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [searchParams]);
 
   const selectedArea = useMemo(
     () => areas.find((area) => area.id === selectedAreaId) ?? areas[0],
@@ -305,7 +322,22 @@ function RiskControl() {
       );
       if (!response.ok) throw new Error("Failed to save risk area");
 
-      const savedArea = normalizeApiArea(await response.json());
+      const savedPayload = await response.json();
+      const savedArea = normalizeApiArea(savedPayload);
+      const cachedPayload = getCachedJson(PAGE_DATA_URLS.areas);
+      if (cachedPayload) {
+        setCachedJson(PAGE_DATA_URLS.areas, {
+          ...cachedPayload,
+          items: [
+            ...(cachedPayload.items ?? []).filter(
+              (area) => area.id !== draft.id && area.id !== savedPayload.id
+            ),
+            savedPayload,
+          ],
+        });
+      } else {
+        invalidateCachedJson(PAGE_DATA_URLS.areas);
+      }
       setAreas((current) =>
         current.map((area) => (area.id === draft.id ? savedArea : area))
       );
@@ -333,6 +365,15 @@ function RiskControl() {
 
     if (draft.isNew) {
       removeAreaFromView(draft.id);
+      const cachedPayload = getCachedJson(PAGE_DATA_URLS.areas);
+      if (cachedPayload) {
+        setCachedJson(PAGE_DATA_URLS.areas, {
+          ...cachedPayload,
+          items: (cachedPayload.items ?? []).filter((area) => area.id !== draft.id),
+        });
+      } else {
+        invalidateCachedJson(PAGE_DATA_URLS.areas);
+      }
       setDeleteDialogOpen(false);
       setSavedMessage("未保存区域已移除");
       return;
@@ -616,19 +657,19 @@ const Wrapper = styled.div`
   grid-template-rows: 52px 82px minmax(0, 1fr);
   gap: 10px;
   overflow: hidden;
-  padding: 12px 14px 14px;
+  padding: ${BUSINESS_PAGE_LAYOUT.padding};
   background: hsl(216 26% 97%);
 `;
 
 const PageHeader = styled.header`
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
 `;
 
 const PageHeading = styled.div`min-width: 0;`;
-const PageTitle = styled.h1`color: ${COLORS.gray10}; font-size: ${FONT_SIZES.peoplePageTitle}; font-weight: 700;`;
+const PageTitle = styled.h1`margin: 0; color: ${COLORS.gray10}; font-size: ${FONT_SIZES.peoplePageTitle}; line-height: ${BUSINESS_PAGE_LAYOUT.titleLineHeight}; font-weight: 700;`;
 const PageSubtitle = styled.p`margin-top: 4px; color: hsl(218 10% 48%); font-size: ${FONT_SIZES.peoplePageSubtitle};`;
 const HeaderActions = styled.div`display: flex; align-items: center; gap: 8px;`;
 

@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import { API_BASE_URL } from "../config/api";
 import MiniAreaSparkline from "../components/MiniAreaSparkline/MiniAreaSparkline";
-import { COLORS, FONT_SIZES } from "../constants/STYLES";
+import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
+import { getCachedJson, loadCachedJson } from "../services/pageDataCache";
 
 const chartColors = {
   blue: "hsl(217 93% 52%)",
@@ -479,8 +480,10 @@ function TopTable({ columns, rows, progressKey }) {
 }
 
 function StatisticsAnalysis() {
-  const [data, setData] = useState(defaultData);
-  const [isLoading, setIsLoading] = useState(true);
+  const initialStatisticsUrl = `${API_BASE_URL}/statistics/overview?days=7`;
+  const initialPayload = getCachedJson(initialStatisticsUrl);
+  const [data, setData] = useState(() => ({ ...defaultData, ...initialPayload }));
+  const [isLoading, setIsLoading] = useState(() => !initialPayload);
   const [hasError, setHasError] = useState(false);
   const [rangeMode, setRangeMode] = useState("7");
   const [startDate, setStartDate] = useState(initialStartDate);
@@ -491,33 +494,33 @@ function StatisticsAnalysis() {
     let isMounted = true;
 
     async function loadStatistics() {
+      const params = new URLSearchParams();
+
+      if (rangeMode === "custom") {
+        params.set("start_date", startDate);
+        params.set("end_date", endDate);
+      } else {
+        params.set("days", rangeMode);
+      }
+
+      const statisticsUrl = `${API_BASE_URL}/statistics/overview?${params.toString()}`;
+      const cachedPayload = getCachedJson(statisticsUrl);
+      if (cachedPayload) {
+        setData({ ...defaultData, ...cachedPayload });
+        setIsLoading(false);
+      }
       try {
-        setIsLoading(true);
+        setIsLoading(!cachedPayload);
         setHasError(false);
-        const params = new URLSearchParams();
-
-        if (rangeMode === "custom") {
-          params.set("start_date", startDate);
-          params.set("end_date", endDate);
-        } else {
-          params.set("days", rangeMode);
-        }
-
-        const response = await fetch(
-          `${API_BASE_URL}/statistics/overview?${params.toString()}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to load statistics overview");
-        }
-
-        const nextData = await response.json();
+        const nextData = await loadCachedJson(statisticsUrl, {
+          force: Boolean(cachedPayload) || refreshKey > 0,
+        });
 
         if (isMounted) {
           setData({ ...defaultData, ...nextData });
         }
       } catch {
-        if (isMounted) {
+        if (isMounted && !cachedPayload) {
           setHasError(true);
         }
       } finally {
@@ -754,7 +757,7 @@ const Wrapper = styled.div`
   grid-template-rows: 20px 96px 28px minmax(0, 1fr);
   gap: 7px;
   overflow: auto;
-  padding: 8px 14px 12px;
+  padding: ${BUSINESS_PAGE_LAYOUT.padding};
   background: hsl(216 26% 97%);
 
   @media (max-height: 700px) {
@@ -766,13 +769,15 @@ const Wrapper = styled.div`
 
 const HeaderRow = styled.div`
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 `;
 
 const PageTitle = styled.h1`
+  margin: 0;
   color: ${COLORS.gray10};
   font-size: ${FONT_SIZES.peoplePageTitle};
   font-weight: 700;
+  line-height: ${BUSINESS_PAGE_LAYOUT.titleLineHeight};
 `;
 
 const MetricGrid = styled.div`
