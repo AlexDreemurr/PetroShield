@@ -97,7 +97,7 @@ function addAreaLabel(BMap, map, text, coordinate, color, onClick) {
   map.addOverlay(new ClickableAreaLabel());
 }
 
-function BaiduSatelliteMap({ layers, alarms = [] }) {
+function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
   const navigate = useNavigate();
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
@@ -243,16 +243,28 @@ function BaiduSatelliteMap({ layers, alarms = [] }) {
       });
     }
 
+    let selectedAlarmPoint = null;
+    let selectedAlarm = null;
     if (layers.alarms) {
       alarms.forEach((alarm, index) => {
         const coordinate = getEntityCoordinate(alarm, index, alarm.location?.area_name);
-        const marker = new BMap.Marker(new BMap.Point(coordinate.lng, coordinate.lat), {
+        const point = new BMap.Point(coordinate.lng, coordinate.lat);
+        const marker = new BMap.Marker(point, {
           icon: createMapMarkerIcon(BMap, { kind: "alarm", status: alarm.level }),
           title: alarm.title || alarm.type || "告警",
         });
         map.addOverlay(marker);
         marker.addEventListener("click", () => setSelectedFeature({ kind: "alarm", item: alarm }));
+        if (alarmSelection?.id === alarm.id) {
+          selectedAlarm = alarm;
+          selectedAlarmPoint = point;
+        }
       });
+    }
+
+    if (selectedAlarm && selectedAlarmPoint) {
+      setSelectedFeature({ kind: "alarm", item: selectedAlarm });
+      map.panTo(selectedAlarmPoint);
     }
 
     visibleAreas.forEach((area) => {
@@ -261,7 +273,7 @@ function BaiduSatelliteMap({ layers, alarms = [] }) {
         setSelectedFeature({ kind: "area", item: area });
       });
     });
-  }, [alarms, layers, mapData, mapRevision, status]);
+  }, [alarmSelection, alarms, layers, mapData, mapRevision, status]);
 
   useEffect(() => {
     if (!selectedFeature) return;

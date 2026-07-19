@@ -214,6 +214,171 @@ async def get_devices_overview():
     }
 
 
+@router.get("/{device_id}/activity")
+async def get_device_activity(device_id: str):
+    """Return operational history, alarms, and maintenance records for a device."""
+    database_url = get_database_url()
+    if not database_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DATABASE_URL or SUPABASE_DB_URL is not configured",
+        )
+
+    try:
+        connection = await asyncpg.connect(
+            database_url,
+            ssl=create_ssl_context() if should_use_ssl(database_url) else False,
+        )
+        device = await connection.fetchrow(
+            """
+            select d.id, d.name, dr.status, dr.battery, dr.signal_strength,
+                   dr.cpu_usage, dr.temperature, dr.last_heartbeat,
+                   dr.health_score, dr.updated_at
+            from public.device d
+            left join public.device_realtime dr on dr.device_id = d.id
+            where d.id = $1;
+            """,
+            device_id,
+        )
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found",
+            )
+
+        runtime_rows = await connection.fetch(
+            """
+            select id, observation_time, status, battery, signal_strength,
+                   cpu_usage, temperature, last_heartbeat, health_score
+            from public.device_realtime_observation
+            where device_id = $1
+              and observation_time >= now() - interval '7 days'
+            order by observation_time desc, created_at desc
+            limit 168;
+            """,
+            device_id,
+        )
+        alarm_rows = await connection.fetch(
+            """
+            select id, type, level, status, "time", description,
+                   confidence, location, evidence
+            from public.alarm
+            where device_id = $1
+            order by "time" desc, create_time desc
+            limit 50;
+            """,
+            device_id,
+        )
+
+        has_maintenance_records = await connection.fetchval(
+            "select to_regclass('public.device_maintenance_record') is not null;"
+        )
+        maintenance_rows = []
+        if has_maintenance_records:
+            maintenance_rows = await connection.fetch(
+                """
+                select record.id, record.maintenance_type, record.content,
+                       record.result, record.status, record.department,
+                       record.started_at, record.completed_at,
+                       record.next_due_at, record.remark,
+                       person.id as maintainer_id, person.name as maintainer_name
+                from public.device_maintenance_record record
+                left join public.person person on person.id = record.maintainer_id
+                where record.device_id = $1
+                order by coalesce(record.completed_at, record.started_at) desc,
+                         record.created_at desc
+                limit 50;
+                """,
+                device_id,
+            )
+
+        maintenance_summary = await connection.fetchrow(
+            """
+            select dm.department, dm.maintenance_level, dm.inspect_cycle_days,
+                   dm.last_inspect_time, dm.next_inspect_time,
+                   dm.last_repair_time, dm.repair_count,
+                   dm.maintenance_status, dm.remark,
+                   person.id as maintainer_id, person.name as maintainer_name
+            from public.device_maintenance dm
+            left join public.person person on person.id = dm.maintainer_id
+            where dm.device_id = $1;
+            """,
+            device_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Failed to load device activity: {type(exc).__name__}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to load device activity",
+        ) from exc
+    finally:
+        if "connection" in locals():
+            await connection.close()
+
+    return {
+        "device": {"id": device["id"], "name": device["name"]},
+        "runtime": {
+            "current": {
+                "status": device["status"],
+                "battery": device["battery"],
+                "signal_strength": device["signal_strength"],
+                "cpu_usage": device["cpu_usage"],
+                "temperature": device["temperature"],
+                "last_heartbeat": isoformat_or_none(device["last_heartbeat"]),
+                "health_score": device["health_score"],
+                "updated_at": isoformat_or_none(device["updated_at"]),
+            },
+            "history": [
+                {
+                    "id": row["id"],
+                    "observation_time": isoformat_or_none(row["observation_time"]),
+                    "status": row["status"],
+                    "battery": row["battery"],
+                    "signal_strength": row["signal_strength"],
+                    "cpu_usage": row["cpu_usage"],
+                    "temperature": row["temperature"],
+                    "last_heartbeat": isoformat_or_none(row["last_heartbeat"]),
+                    "health_score": row["health_score"],
+                }
+                for row in runtime_rows
+            ],
+        },
+        "alarms": [
+            {
+                **build_alarm_item(row),
+                "confidence": row["confidence"],
+                "location": row["location"] or {},
+                "evidence": row["evidence"] or {},
+            }
+            for row in alarm_rows
+        ],
+        "maintenance": {
+            "summary": dict(maintenance_summary) if maintenance_summary else None,
+            "records": [
+                {
+                    "id": row["id"],
+                    "type": row["maintenance_type"],
+                    "content": row["content"],
+                    "result": row["result"],
+                    "status": row["status"],
+                    "department": row["department"],
+                    "started_at": isoformat_or_none(row["started_at"]),
+                    "completed_at": isoformat_or_none(row["completed_at"]),
+                    "next_due_at": isoformat_or_none(row["next_due_at"]),
+                    "remark": row["remark"],
+                    "maintainer": {
+                        "id": row["maintainer_id"],
+                        "name": row["maintainer_name"],
+                    },
+                }
+                for row in maintenance_rows
+            ],
+        },
+    }
+
+
 @router.put("/{device_id}", dependencies=[Depends(require_permission("devices.edit"))])
 async def update_device(device_id: str, payload: DeviceUpdate):
     database_url = get_database_url()

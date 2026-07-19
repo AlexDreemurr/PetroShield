@@ -26,6 +26,10 @@ begin
     raise exception 'Device observation seed validation failed: expected 112 rows.';
   end if;
 
+  if (select count(*) from public.device_maintenance_record where seed_source = 'seed_device_maintenance_records.sql') <> 48 then
+    raise exception 'Device maintenance seed validation failed: expected 48 rows.';
+  end if;
+
   if (select count(*) from public.position where id like 'pos-seed-%') <> 15000 then
     raise exception 'Realtime position seed validation failed: expected 15000 rows.';
   end if;
@@ -127,6 +131,15 @@ begin
 
   if exists (
     select 1
+    from public.device_maintenance_record
+    where seed_source = 'seed_device_maintenance_records.sql'
+      and (started_at < window_start or started_at >= window_end)
+  ) then
+    raise exception 'Device maintenance seed contains rows outside the rolling 7-day window.';
+  end if;
+
+  if exists (
+    select 1
     from public.position
     where (id like 'pos-history-seed-%' or id like 'pos-seed-%')
       and ("timestamp" < window_start or "timestamp" >= window_end)
@@ -166,4 +179,9 @@ select
     select count(*)
     from public.device_realtime_observation
     where id like 'device-status-seed-%'
-  ) as device_observations;
+  ) as device_observations,
+  (
+    select count(*)
+    from public.device_maintenance_record
+    where seed_source = 'seed_device_maintenance_records.sql'
+  ) as device_maintenance_records;

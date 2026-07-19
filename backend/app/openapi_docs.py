@@ -213,6 +213,10 @@ OPERATION_DOCS: dict[tuple[str, str], dict[str, Any]] = {
         "获取设备管理总览", "返回设备台账、实时状态、维保、合规、区域归属及近期告警。",
         permission="devices.view", response_example={"items": [{"id": "dev-camera-a01", "name": "一号罐区摄像机 A01", "type": "视频设备", "category": "摄像机", "region_id": "area-example", "location": {"x": 121.4941, "y": 31.2402}, "realtime": {"status": "online", "health_score": 96}, "alarm_count": 2}]}, errors=(401, 403, 503),
     ),
+    ("get", "/api/v1/devices/{device_id}/activity"): _doc(
+        "获取设备运行与维护明细", "返回设备当前运行快照、近 7 天运行观测、最近 50 条关联告警及最近 50 条维护记录。",
+        permission="devices.view", parameters={"device_id": "设备唯一编号。"}, response_example={"device": {"id": "dev-camera-a01", "name": "一号罐区摄像机 A01"}, "runtime": {"current": {"status": "online", "cpu_usage": 42, "temperature": 43.3, "health_score": 89}, "history": [{"observation_time": "2026-07-19T08:00:00+08:00", "status": "online", "health_score": 89}]}, "alarms": [{"id": "alarm-001", "type": "视频设备离线", "level": "严重", "status": "关闭"}], "maintenance": {"summary": {"maintenance_status": "正常"}, "records": [{"id": "device-maintenance-seed-dev-camera-a01-r1", "type": "巡检", "content": "检查供电、通信和安装状态", "result": "检查正常", "status": "completed", "maintainer": {"id": "person-005", "name": "王五"}}]}}, errors=(401, 403, 404, 503),
+    ),
     ("put", "/api/v1/devices/{device_id}"): _doc(
         "更新设备档案", "更新设备基础信息、区域与坐标，并同步写入最新实时状态。区域编号必须真实存在。",
         permission="devices.edit", parameters={"device_id": "设备唯一编号。"},

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import styled from "styled-components";
 import {
   Activity,
   Camera,
+  Clock3,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ import {
   Search,
   Thermometer,
   Trash2,
+  Wrench,
   Waves,
   X,
   Zap,
@@ -76,6 +78,11 @@ function formatDateTime(value) {
       hour12: false,
     })
     .replaceAll("/", "-");
+}
+
+function formatMetric(value, suffix = "") {
+  if (value == null || Number.isNaN(Number(value))) return "--";
+  return `${Math.round(Number(value) * 10) / 10}${suffix}`;
 }
 
 function normalizeDeviceStatus(status) {
@@ -350,14 +357,51 @@ function HealthRing({ value }) {
 function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, canDelete }) {
   const [activeTab, setActiveTab] = useState("detail");
   const [copiedField, setCopiedField] = useState(null);
+  const [activityData, setActivityData] = useState(null);
+  const [activityStatus, setActivityStatus] = useState("loading");
+  const [activityRevision, setActivityRevision] = useState(0);
   const healthScores = device.healthScores ?? [
     Math.min(99, device.health + 2),
     Math.max(70, device.health - 1),
     Math.max(70, device.health - 2),
     device.health,
   ];
-  const alarms = device.recentAlarms ?? [];
-  const maintenanceRows = device.maintenanceRows ?? [];
+  const alarms = activityData?.alarms ?? device.recentAlarms ?? [];
+  const maintenanceRecords = activityData?.maintenance?.records ?? [];
+  const maintenanceRows = maintenanceRecords.length > 0
+    ? maintenanceRecords.map((record) => ({
+        type: record.type,
+        content: record.content,
+        person: record.maintainer?.name ?? record.department ?? "--",
+        time: formatDateTime(record.completed_at ?? record.started_at),
+      }))
+    : device.maintenanceRows ?? [];
+
+  useEffect(() => {
+    let isMounted = true;
+    setActivityStatus("loading");
+    apiFetch(`${API_BASE_URL}/devices/${encodeURIComponent(device.id)}/activity`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("设备运行信息加载失败");
+        return response.json();
+      })
+      .then((payload) => {
+        if (!isMounted) return;
+        setActivityData(payload);
+        setActivityStatus("ready");
+      })
+      .catch(() => {
+        if (isMounted) setActivityStatus("error");
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [activityRevision, device.id]);
+
+  useEffect(() => {
+    setActiveTab("detail");
+    setActivityData(null);
+  }, [device.id]);
 
   async function handleCopy(value, field) {
     if (!value) {
@@ -565,14 +609,64 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, 
               </tbody>
             </MaintenanceTable>
           </>
+        ) : activityStatus === "loading" ? (
+          <TabState>正在加载设备{activeTab === "runtime" ? "运行数据" : activeTab === "alarms" ? "告警记录" : "维护记录"}...</TabState>
+        ) : activityStatus === "error" ? (
+          <TabState>
+            <span>设备明细加载失败</span>
+            <RetryButton type="button" onClick={() => setActivityRevision((value) => value + 1)}>重新加载</RetryButton>
+          </TabState>
+        ) : activeTab === "runtime" ? (
+          <RuntimePanel>
+            <SectionHeader><SectionTitle>当前运行状态</SectionTitle><DataTimestamp>更新于 {formatDateTime(activityData?.runtime?.current?.updated_at)}</DataTimestamp></SectionHeader>
+            <RuntimeMetricGrid>
+              <RuntimeMetric><Activity size={17} /><span>健康度</span><strong>{formatMetric(activityData?.runtime?.current?.health_score, "%")}</strong></RuntimeMetric>
+              <RuntimeMetric><Thermometer size={17} /><span>设备温度</span><strong>{formatMetric(activityData?.runtime?.current?.temperature, "℃")}</strong></RuntimeMetric>
+              <RuntimeMetric><Gauge size={17} /><span>CPU 使用率</span><strong>{formatMetric(activityData?.runtime?.current?.cpu_usage, "%")}</strong></RuntimeMetric>
+              <RuntimeMetric><Radio size={17} /><span>信号强度</span><strong>{formatMetric(activityData?.runtime?.current?.signal_strength, "%")}</strong></RuntimeMetric>
+            </RuntimeMetricGrid>
+            <SectionHeader><SectionTitle>近 7 天运行观测</SectionTitle><RecordCount>{activityData?.runtime?.history?.length ?? 0} 条</RecordCount></SectionHeader>
+            {activityData?.runtime?.history?.length ? (
+              <RuntimeHistory>
+                {activityData.runtime.history.map((row) => (
+                  <RuntimeRow key={row.id}>
+                    <RuntimeState $tone={statusTone[normalizeDeviceStatus(row.status)]}>{statusLabels[normalizeDeviceStatus(row.status)]}</RuntimeState>
+                    <RuntimeTime>{formatDateTime(row.observation_time)}</RuntimeTime>
+                    <RuntimeReading><span>健康</span><strong>{formatMetric(row.health_score)}</strong></RuntimeReading>
+                    <RuntimeReading><span>温度</span><strong>{formatMetric(row.temperature, "℃")}</strong></RuntimeReading>
+                    <RuntimeReading><span>信号</span><strong>{formatMetric(row.signal_strength, "%")}</strong></RuntimeReading>
+                  </RuntimeRow>
+                ))}
+              </RuntimeHistory>
+            ) : <TabEmpty>近 7 天暂无运行观测</TabEmpty>}
+          </RuntimePanel>
+        ) : activeTab === "alarms" ? (
+          <RecordsPanel>
+            <RecordsHeading><div><SectionTitle>设备告警记录</SectionTitle><span>按发生时间倒序，最多显示 50 条</span></div><RecordCount>{alarms.length} 条</RecordCount></RecordsHeading>
+            {alarms.length ? alarms.map((alarm) => (
+              <AlarmRecordLink key={alarm.id} to={`/alarm-center?alarm_id=${encodeURIComponent(alarm.id)}`}>
+                <AlarmRecordIcon $tone={alarm.level === "重大" || alarm.level === "严重" ? "red" : "orange"}><Zap size={14} /></AlarmRecordIcon>
+                <AlarmRecordContent><strong>{alarm.type}</strong><span>{alarm.description || "暂无告警说明"}</span><time>{formatDateTime(alarm.time)}</time></AlarmRecordContent>
+                <AlarmRecordBadges><LevelBadge>{alarm.level}</LevelBadge><StatusBadge $tone={alarm.status === "关闭" ? "green" : "orange"}>{alarm.status}</StatusBadge></AlarmRecordBadges>
+              </AlarmRecordLink>
+            )) : <TabEmpty>该设备暂无告警记录</TabEmpty>}
+          </RecordsPanel>
         ) : (
-          <TabFailureState>
-            {activeTab === "runtime"
-              ? "运行数据加载失败"
-              : activeTab === "alarms"
-              ? "告警记录加载失败"
-              : "维护记录加载失败"}
-          </TabFailureState>
+          <RecordsPanel>
+            <MaintenanceSummary>
+              <Wrench size={18} />
+              <div><span>当前维保状态</span><strong>{activityData?.maintenance?.summary?.maintenance_status ?? "未配置"}</strong></div>
+              <div><span>责任部门</span><strong>{activityData?.maintenance?.summary?.department ?? "--"}</strong></div>
+              <div><span>下次巡检</span><strong>{formatDateTime(activityData?.maintenance?.summary?.next_inspect_time)}</strong></div>
+            </MaintenanceSummary>
+            <RecordsHeading><div><SectionTitle>维护历史</SectionTitle><span>巡检、保养、维修和校准明细</span></div><RecordCount>{maintenanceRecords.length} 条</RecordCount></RecordsHeading>
+            {maintenanceRecords.length ? maintenanceRecords.map((record) => (
+              <MaintenanceRecord key={record.id}>
+                <MaintenanceMarker><Clock3 size={14} /></MaintenanceMarker>
+                <MaintenanceContent><div><strong>{record.type}</strong><MaintenanceStatus>{record.status === "completed" ? "已完成" : record.status}</MaintenanceStatus></div><p>{record.content}</p><span>{record.result || "暂无结果说明"}</span><small>{record.maintainer?.name || "未指定"} · {record.department || "未指定部门"} · {formatDateTime(record.completed_at ?? record.started_at)}</small></MaintenanceContent>
+              </MaintenanceRecord>
+            )) : <TabEmpty>该设备暂无维护记录</TabEmpty>}
+          </RecordsPanel>
         )}
       </DrawerBody>
 
@@ -1792,13 +1886,120 @@ const HealthBlock = styled.div`
   margin-top: 10px;
 `;
 
-const TabFailureState = styled.div`
+const TabState = styled.div`
   min-height: 260px;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 12px;
   color: hsl(218 10% 52%);
   font-size: ${FONT_SIZES.peopleTable};
 `;
+
+const RetryButton = styled.button`
+  height: 30px;
+  border: 1px solid hsl(215 82% 62%);
+  border-radius: 5px;
+  padding: 0 14px;
+  color: hsl(215 82% 48%);
+  background: white;
+  font-size: ${FONT_SIZES.peopleDetailLabel};
+  font-weight: 700;
+  cursor: pointer;
+`;
+
+const RuntimePanel = styled.div`display: grid; gap: 8px;`;
+const DataTimestamp = styled.span`color: hsl(218 10% 52%); font-size: ${FONT_SIZES.peopleBadge};`;
+const RecordCount = styled.span`color: hsl(215 82% 50%); font-family: var(--font-data); font-size: ${FONT_SIZES.peopleDetailLabel}; font-weight: 700;`;
+const RuntimeMetricGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+`;
+const RuntimeMetric = styled.div`
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 7px;
+  border: 1px solid hsl(216 22% 89%);
+  border-radius: 6px;
+  padding: 10px;
+  color: hsl(215 82% 50%);
+  background: hsl(216 40% 98%);
+  span { color: hsl(218 10% 48%); font-size: ${FONT_SIZES.peopleDetailLabel}; }
+  strong { grid-column: 2; color: hsl(218 20% 20%); font-family: var(--font-data); font-size: 20px; }
+`;
+const RuntimeHistory = styled.div`display: grid; gap: 7px;`;
+const RuntimeRow = styled.div`
+  display: grid;
+  grid-template-columns: 46px minmax(108px, 1fr) repeat(3, 48px);
+  align-items: center;
+  gap: 6px;
+  min-height: 50px;
+  border-bottom: 1px solid hsl(220 13% 91%);
+  font-size: ${FONT_SIZES.peopleBadge};
+`;
+const RuntimeState = styled.span`
+  width: fit-content; padding: 2px 5px; border-radius: 3px; font-weight: 700;
+  color: ${(p) => p.$tone === "green" ? "hsl(154 78% 35%)" : "hsl(15 82% 50%)"};
+  background: ${(p) => p.$tone === "green" ? "hsl(154 70% 94%)" : "hsl(20 90% 94%)"};
+`;
+const RuntimeTime = styled.time`color: hsl(218 10% 46%); font-family: var(--font-data);`;
+const RuntimeReading = styled.div`display: grid; gap: 2px; text-align: right; span { color: hsl(218 10% 52%); } strong { color: hsl(218 18% 24%); font-family: var(--font-data); }`;
+const RecordsPanel = styled.div`display: grid; gap: 10px;`;
+const RecordsHeading = styled.div`
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;
+  > div { display: grid; gap: 3px; }
+  span { color: hsl(218 10% 52%); font-size: ${FONT_SIZES.peopleBadge}; }
+`;
+const AlarmRecordLink = styled(Link)`
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 9px; align-items: start;
+  border: 1px solid hsl(216 22% 89%); border-radius: 6px; padding: 10px;
+  color: inherit; background: white; text-decoration: none;
+  &:hover { border-color: hsl(215 82% 70%); background: hsl(214 100% 98%); }
+`;
+const AlarmRecordIcon = styled.div`
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: white;
+  background: ${(p) =>
+    ({
+      red: "hsl(0 83% 60%)",
+      yellow: "hsl(44 95% 52%)",
+      orange: "hsl(28 92% 58%)",
+    }[p.$tone] ?? "hsl(28 92% 58%)")};
+`;
+const AlarmRecordContent = styled.div`
+  min-width: 0; display: grid; gap: 4px;
+  strong { overflow: hidden; color: hsl(218 20% 20%); font-size: ${FONT_SIZES.peopleTable}; text-overflow: ellipsis; white-space: nowrap; }
+  span { color: hsl(218 10% 43%); font-size: ${FONT_SIZES.peopleDetailLabel}; line-height: 1.4; }
+  time { color: hsl(218 10% 55%); font-family: var(--font-data); font-size: ${FONT_SIZES.peopleBadge}; }
+`;
+const AlarmRecordBadges = styled.div`display: grid; justify-items: end; gap: 5px;`;
+const LevelBadge = styled.span`width: fit-content; border-radius: 3px; padding: 2px 5px; color: hsl(15 82% 50%); background: hsl(20 90% 94%); font-size: ${FONT_SIZES.peopleBadge}; font-weight: 700;`;
+const MaintenanceSummary = styled.div`
+  display: grid; grid-template-columns: 28px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center;
+  border: 1px solid hsl(215 70% 88%); border-radius: 6px; padding: 11px; color: hsl(215 82% 50%); background: hsl(214 100% 98%);
+  div { min-width: 0; display: grid; gap: 3px; }
+  span { color: hsl(218 10% 52%); font-size: ${FONT_SIZES.peopleBadge}; }
+  strong { overflow-wrap: anywhere; color: hsl(218 20% 22%); font-size: ${FONT_SIZES.peopleDetailLabel}; }
+`;
+const MaintenanceRecord = styled.div`display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px;`;
+const MaintenanceMarker = styled.div`width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: hsl(215 82% 50%); background: hsl(214 100% 95%);`;
+const MaintenanceContent = styled.div`
+  min-width: 0; border-bottom: 1px solid hsl(220 13% 91%); padding-bottom: 11px;
+  > div { display: flex; align-items: center; gap: 7px; }
+  strong { color: hsl(218 20% 20%); font-size: ${FONT_SIZES.peopleTable}; }
+  p { margin: 6px 0 3px; color: hsl(218 14% 31%); font-size: ${FONT_SIZES.peopleDetailLabel}; line-height: 1.45; }
+  > span { display: block; color: hsl(218 10% 45%); font-size: ${FONT_SIZES.peopleDetailLabel}; }
+  small { display: block; margin-top: 6px; color: hsl(218 10% 57%); font-family: var(--font-data); font-size: ${FONT_SIZES.peopleBadge}; }
+`;
+const MaintenanceStatus = styled.span`border-radius: 3px; padding: 2px 5px; color: hsl(154 78% 35%) !important; background: hsl(154 70% 94%); font-size: ${FONT_SIZES.peopleBadge} !important; font-weight: 700;`;
+const TabEmpty = styled.div`min-height: 190px; display: grid; place-items: center; color: hsl(218 10% 52%); font-size: ${FONT_SIZES.peopleDetailLabel};`;
 
 const SmallLabel = styled.div`
   color: hsl(218 10% 42%);

@@ -453,7 +453,7 @@ function ChartPanelBody({ children }) {
   return <ChartPanelContent>{children}</ChartPanelContent>;
 }
 
-function FactoryMapCard({ alarms }) {
+function FactoryMapCard({ alarms, alarmSelection }) {
   const [mapLayers, setMapLayers] = useState({
     people: true,
     devices: true,
@@ -463,6 +463,11 @@ function FactoryMapCard({ alarms }) {
   const toggleLayer = (key) => {
     setMapLayers((current) => ({ ...current, [key]: !current[key] }));
   };
+
+  useEffect(() => {
+    if (!alarmSelection?.id) return;
+    setMapLayers((current) => current.alarms ? current : { ...current, alarms: true });
+  }, [alarmSelection]);
 
   return (
     <DashboardSection
@@ -476,12 +481,12 @@ function FactoryMapCard({ alarms }) {
         </MapToggles>
       }
     >
-      <BaiduSatelliteMap layers={mapLayers} alarms={alarms} />
+      <BaiduSatelliteMap layers={mapLayers} alarms={alarms} alarmSelection={alarmSelection} />
     </DashboardSection>
   );
 }
 
-function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
+function RealtimeAlarmCard({ total, items, hasError, isLoading, onAlarmSelect }) {
   const displayItems = isLoading || hasError ? [] : items;
   const [currentPage, setCurrentPage] = useState(0);
   const pageCount = Math.max(
@@ -534,9 +539,11 @@ function RealtimeAlarmCard({ total, items, hasError, isLoading }) {
                 ? item.id
                 : `empty-${index}`
             }
-            to={item ? `/alarm-center?alarm_id=${encodeURIComponent(item.id)}` : "/alarm-center"}
+            type="button"
             $isEmpty={!item}
             tabIndex={item ? 0 : -1}
+            onClick={() => item && onAlarmSelect(item)}
+            aria-label={item ? `在地图上查看告警：${item.title}` : undefined}
           >
             {item ? (
               <>
@@ -1227,6 +1234,7 @@ function Dashboard() {
   const [realtimeAlarms, setRealtimeAlarms] = useState(() =>
     (initialAlarms?.items ?? []).map(normalizeRealtimeAlarm)
   );
+  const [mapAlarmSelection, setMapAlarmSelection] = useState(null);
   const [isLoading, setIsLoading] = useState(() => !initialMetrics);
   const [hasError, setHasError] = useState(false);
   const [alarmHasError, setAlarmHasError] = useState(false);
@@ -1495,12 +1503,13 @@ function Dashboard() {
             hasError={hasError}
           />
         </DistributionStack>
-        <FactoryMapCard alarms={realtimeAlarms} />
+        <FactoryMapCard alarms={realtimeAlarms} alarmSelection={mapAlarmSelection} />
         <RealtimeAlarmCard
           total={metrics?.today_alarm_count}
           items={realtimeAlarms}
           hasError={alarmHasError}
           isLoading={isAlarmLoading}
+          onAlarmSelect={(alarm) => setMapAlarmSelection({ id: alarm.id, requestId: Date.now() })}
         />
       </DashboardGrid>
 
@@ -1966,7 +1975,10 @@ const AlarmStatusMessage = styled.div`
   pointer-events: none;
 `;
 
-const AlarmRow = styled(Link)`
+const AlarmRow = styled.button`
+  width: 100%;
+  border: 0;
+  padding: 0;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 46px 66px;
   align-items: center;
@@ -1976,7 +1988,11 @@ const AlarmRow = styled(Link)`
   opacity: ${(p) => (p.$isEmpty ? 0 : 1)};
   pointer-events: ${(p) => (p.$isEmpty ? "none" : "auto")};
   color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
   transition: background-color 150ms ease;
 
   &:hover,

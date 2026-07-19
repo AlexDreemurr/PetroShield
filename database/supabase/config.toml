@@ -76,6 +76,7 @@ sql_paths = [
   "./seeds/seed_alarm_workflow.sql",
   "./seeds/seed_person_health.sql",
   "./seeds/seed_device_realtime_observation.sql",
+  "./seeds/seed_device_maintenance_records.sql",
   "./seeds/verify_seed_last_7_days.sql",
 ]
 

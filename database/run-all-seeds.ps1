@@ -140,6 +140,7 @@ $seedFiles = @(
   'seed_alarm_workflow.sql',
   'seed_person_health.sql',
   'seed_device_realtime_observation.sql',
+  'seed_device_maintenance_records.sql',
   'verify_seed_last_7_days.sql'
 )
 

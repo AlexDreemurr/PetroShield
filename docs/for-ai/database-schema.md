@@ -14,6 +14,7 @@
 | `device_realtime` | 设备实时状态快照 |
 | `device_realtime_observation` | 设备实时状态历史观测，最新观测同步到 `device_realtime` |
 | `device_maintenance` | 设备运维管理 |
+| `device_maintenance_record` | 设备巡检、保养、维修和校准历史明细 |
 | `device_compliance` | 设备合规、年检、证书 |
 | `person` | 人员基础信息、状态、培训、健康、安全行为 |
 | `person_health_observation` | 人员健康历史观测，最新观测同步回 `person` 健康字段 |
@@ -220,6 +221,34 @@ erDiagram
 索引：
 
 - `idx_device_maintenance_maintainer_id(maintainer_id)`
+
+### `device_maintenance_record`
+
+设备维护历史明细，与 `device` 多对一。`device_maintenance` 保存当前维保摘要，
+本表保存每一次实际巡检、保养、维修或校准过程。
+
+| 字段 | 类型 | 约束/默认 |
+| --- | --- | --- |
+| `id` | `text` | PK, default UUID |
+| `device_id` | `text` | NOT NULL, FK -> `device(id)`, ON DELETE CASCADE |
+| `maintenance_type` | `text` | NOT NULL，巡检/保养/维修/校准 |
+| `content` | `text` | NOT NULL，工作内容 |
+| `result` | `text` | NULL，检查或处置结果 |
+| `status` | `text` | NOT NULL, `scheduled/in_progress/completed/cancelled` |
+| `maintainer_id` | `text` | NULL, FK -> `person(id)`, ON DELETE SET NULL |
+| `department` | `text` | NULL |
+| `started_at` | `timestamptz` | NOT NULL |
+| `completed_at` | `timestamptz` | NULL，不早于开始时间 |
+| `next_due_at` | `timestamptz` | NULL |
+| `remark` | `text` | NULL |
+| `seed_source` | `text` | NULL，模拟记录来源 |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` |
+
+索引/触发器：
+
+- `idx_device_maintenance_record_device_time(device_id, started_at desc)`
+- `trg_device_maintenance_record_set_updated_at`
 
 ### `device_compliance`
 
