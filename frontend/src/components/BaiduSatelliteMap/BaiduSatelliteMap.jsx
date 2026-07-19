@@ -4,9 +4,10 @@ import styled from "styled-components";
 import { ArrowRight, X } from "lucide-react";
 import { loadBaiduMap } from "./baiduMapLoader";
 import { getAreaLocalCenter } from "./mapGeometry";
-import { createMapMarkerIcon, MAP_AREA_COLORS } from "./mapMarkerIcons";
+import { createMapMarkerIcon, getMapAreaColors } from "./mapMarkerIcons";
 import MapFullscreenButton from "./MapFullscreenButton";
 import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../../services/pageDataCache";
+import { dictionaryLabel, useRuntimeDictionaries } from "../../services/runtimeDictionaries";
 
 const MAP_CENTER = { lng: 121.671271, lat: 29.978283 };
 const LOCAL_ORIGIN = { x: 300, y: 220 };
@@ -98,10 +99,12 @@ function addAreaLabel(BMap, map, text, coordinate, color, onClick) {
 }
 
 function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
+  const dictionaries = useRuntimeDictionaries();
   const navigate = useNavigate();
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
   const bmapRef = useRef(null);
+  const handledAlarmSelectionRef = useRef(null);
   const [status, setStatus] = useState("loading");
   const initialPeople = getCachedJson(PAGE_DATA_URLS.people);
   const initialDevices = getCachedJson(PAGE_DATA_URLS.devices);
@@ -116,6 +119,8 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
     areas: initialAreas?.items ?? [],
   });
   const [selectedFeature, setSelectedFeature] = useState(null);
+  const selectedKind = selectedFeature?.kind;
+  const selectedId = selectedFeature?.item?.id;
 
   useEffect(() => {
     let isMounted = true;
@@ -189,7 +194,7 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
 
     if (layers.areas) {
       visibleAreas.forEach((area) => {
-        const colors = MAP_AREA_COLORS[area.type] ?? MAP_AREA_COLORS.normal;
+        const colors = getMapAreaColors(area.type, dictionaries);
         let overlay;
         if (area.shape === "circle" && area.center && area.radius) {
           const center = localToMap(area.center);
@@ -219,7 +224,7 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
       mapData.devices.forEach((device, index) => {
         const coordinate = getEntityCoordinate(device, index, device.area_name);
         const marker = new BMap.Marker(new BMap.Point(coordinate.lng, coordinate.lat), {
-          icon: createMapMarkerIcon(BMap, { kind: "device", type: device.type, status: device.realtime?.status }),
+          icon: createMapMarkerIcon(BMap, { kind: "device", type: device.type, status: device.realtime?.status, selected: selectedKind === "device" && selectedId === device.id, dictionarySnapshot: dictionaries }),
           title: device.name,
         });
         map.addOverlay(marker);
@@ -233,7 +238,7 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
       mapData.people.forEach((person, index) => {
         const coordinate = getEntityCoordinate(person, index, person.location_zone);
         const marker = new BMap.Marker(new BMap.Point(coordinate.lng, coordinate.lat), {
-          icon: createMapMarkerIcon(BMap, { kind: "person", status: person.status }),
+          icon: createMapMarkerIcon(BMap, { kind: "person", type: person.type, status: person.status, selected: selectedKind === "person" && selectedId === person.id, dictionarySnapshot: dictionaries }),
           title: person.name,
         });
         map.addOverlay(marker);
@@ -245,17 +250,21 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
 
     let selectedAlarmPoint = null;
     let selectedAlarm = null;
+    const shouldHandleAlarmSelection = Boolean(
+      alarmSelection?.id &&
+      alarmSelection?.requestId !== handledAlarmSelectionRef.current
+    );
     if (layers.alarms) {
       alarms.forEach((alarm, index) => {
         const coordinate = getEntityCoordinate(alarm, index, alarm.location?.area_name);
         const point = new BMap.Point(coordinate.lng, coordinate.lat);
         const marker = new BMap.Marker(point, {
-          icon: createMapMarkerIcon(BMap, { kind: "alarm", status: alarm.level }),
+          icon: createMapMarkerIcon(BMap, { kind: "alarm", status: alarm.level, selected: selectedKind === "alarm" && selectedId === alarm.id, dictionarySnapshot: dictionaries }),
           title: alarm.title || alarm.type || "告警",
         });
         map.addOverlay(marker);
         marker.addEventListener("click", () => setSelectedFeature({ kind: "alarm", item: alarm }));
-        if (alarmSelection?.id === alarm.id) {
+        if (shouldHandleAlarmSelection && alarmSelection.id === alarm.id) {
           selectedAlarm = alarm;
           selectedAlarmPoint = point;
         }
@@ -263,17 +272,20 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
     }
 
     if (selectedAlarm && selectedAlarmPoint) {
-      setSelectedFeature({ kind: "alarm", item: selectedAlarm });
+      handledAlarmSelectionRef.current = alarmSelection.requestId;
+      if (selectedKind !== "alarm" || selectedId !== selectedAlarm.id) {
+        setSelectedFeature({ kind: "alarm", item: selectedAlarm });
+      }
       map.panTo(selectedAlarmPoint);
     }
 
     visibleAreas.forEach((area) => {
-      const colors = MAP_AREA_COLORS[area.type] ?? MAP_AREA_COLORS.normal;
+      const colors = getMapAreaColors(area.type, dictionaries);
       addAreaLabel(BMap, map, area.name, getAreaCenter(area), colors.label, () => {
         setSelectedFeature({ kind: "area", item: area });
       });
     });
-  }, [alarmSelection, alarms, layers, mapData, mapRevision, status]);
+  }, [alarmSelection, alarms, dictionaries, layers, mapData, mapRevision, selectedId, selectedKind, status]);
 
   useEffect(() => {
     if (!selectedFeature) return;
@@ -287,7 +299,6 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
   }, [layers, selectedFeature]);
 
   const selectedItem = selectedFeature?.item;
-  const selectedKind = selectedFeature?.kind;
   const selectedMeta = selectedKind === "person"
     ? {
         eyebrow: "人员",
@@ -321,7 +332,7 @@ function BaiduSatelliteMap({ layers, alarms = [], alarmSelection = null }) {
         : selectedKind === "alarm"
           ? {
               eyebrow: "告警",
-              title: selectedItem?.title || selectedItem?.type,
+              title: dictionaryLabel(dictionaries, "alarm_type", selectedItem?.type, selectedItem?.title || selectedItem?.type),
               lines: [selectedItem?.description, selectedItem?.meta],
               status: `${selectedItem?.level || "一般"} · ${selectedItem?.status || "待处理"}`,
               action: "查看告警",

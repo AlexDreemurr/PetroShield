@@ -3,8 +3,9 @@ import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
 import MapFullscreenButton from "../BaiduSatelliteMap/MapFullscreenButton";
 import { getAreaLocalCenter } from "../BaiduSatelliteMap/mapGeometry";
-import { createMapMarkerIcon, MAP_AREA_COLORS } from "../BaiduSatelliteMap/mapMarkerIcons";
+import { createMapMarkerIcon, getMapAreaColors } from "../BaiduSatelliteMap/mapMarkerIcons";
 import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../../services/pageDataCache";
+import { dictionaryColor, useRuntimeDictionaries } from "../../services/runtimeDictionaries";
 
 const MAP_CENTER = { lng: 121.671271, lat: 29.978283 };
 const LOCAL_ORIGIN = { x: 300, y: 220 };
@@ -41,17 +42,17 @@ function addAlarmMarker(BMap, map, point, text, tone, title) {
   map.addOverlay(label);
 }
 
-function addEntityMarker(BMap, map, point, entity) {
+function addEntityMarker(BMap, map, point, entity, dictionaries) {
   const coordinate = localToMap(point);
   const marker = new BMap.Marker(new BMap.Point(coordinate.lng, coordinate.lat), {
-    icon: createMapMarkerIcon(BMap, entity),
+    icon: createMapMarkerIcon(BMap, { ...entity, dictionarySnapshot: dictionaries }),
     title: entity.title,
   });
   map.addOverlay(marker);
 }
 
-function addAreaOverlay(BMap, map, area, isAlarmArea) {
-  const areaColors = MAP_AREA_COLORS[area.type] ?? MAP_AREA_COLORS.normal;
+function addAreaOverlay(BMap, map, area, isAlarmArea, dictionaries) {
+  const areaColors = getMapAreaColors(area.type, dictionaries);
   const colors = isAlarmArea
     ? areaColors
     : { stroke: "#64748b", fill: "#94a3b8", label: "#e2e8f0" };
@@ -111,6 +112,7 @@ function addAreaOverlay(BMap, map, area, isAlarmArea) {
 }
 
 function AlarmCenterMap({ detail, isDataLoading, hasDataError, mapType }) {
+  const dictionaries = useRuntimeDictionaries();
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
   const bmapRef = useRef(null);
@@ -196,29 +198,29 @@ function AlarmCenterMap({ detail, isDataLoading, hasDataError, mapType }) {
             area.enabled !== false &&
             area.id !== alarmArea?.id
         )
-        .forEach((area) => addAreaOverlay(BMap, map, area, false));
+        .forEach((area) => addAreaOverlay(BMap, map, area, false, dictionaries));
     }
-    if (alarmArea) addAreaOverlay(BMap, map, alarmArea, true);
+    if (alarmArea) addAreaOverlay(BMap, map, alarmArea, true, dictionaries);
 
     (detail.resources ?? []).forEach((resource) => {
       if (resource.location?.x == null || resource.location?.y == null) return;
       addEntityMarker(BMap, map, resource.location, {
         kind: "device", type: resource.type, status: resource.status, title: resource.name,
-      });
+      }, dictionaries);
     });
     if (detail.subject?.kind === "person" && detail.position?.x != null) {
       addEntityMarker(BMap, map, detail.position, {
-        kind: "person", status: detail.subject.status, title: detail.subject.name,
-      });
+        kind: "person", type: detail.subject.type, status: detail.subject.status, title: detail.subject.name,
+      }, dictionaries);
     } else if (detail.subject?.kind === "device" && detail.location?.x != null) {
       addEntityMarker(BMap, map, detail.location, {
         kind: "device", type: detail.subject.type, status: detail.subject.status, title: detail.subject.name,
-      });
+      }, dictionaries);
     }
-    addAlarmMarker(BMap, map, detail.location, "!", "#ef4444", detail.type);
+    addAlarmMarker(BMap, map, detail.location, "!", dictionaryColor(dictionaries, "risk_level", detail.level, "#ef4444"), detail.type);
     const alarmPoint = localToMap(detail.location);
     map.panTo(new BMap.Point(alarmPoint.lng, alarmPoint.lat));
-  }, [detail, revision, riskAreas, showOtherAreas]);
+  }, [detail, dictionaries, revision, riskAreas, showOtherAreas]);
 
   const overlayStatus = hasDataError || status === "error" || areaStatus === "error"
     ? "地图信息加载失败"

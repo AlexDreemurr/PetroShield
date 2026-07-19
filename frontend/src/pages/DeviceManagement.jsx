@@ -29,6 +29,7 @@ import { API_BASE_URL, apiFetch } from "../config/api";
 import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
 import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../services/pageDataCache";
 import { useAuth } from "../auth/authStore";
+import { activeDictionaryItems, dictionaryColor, dictionaryLabel, useRuntimeDictionaries } from "../services/runtimeDictionaries";
 
 const DEVICE_TABS = [
   { key: "all", label: "全部设备" },
@@ -273,7 +274,9 @@ function BatteryIndicator({ value, powerMode }) {
 }
 
 function DeviceCard({ device, isSelected, onSelect }) {
+  const dictionaries = useRuntimeDictionaries();
   const tone = statusTone[device.status] ?? "gray";
+  const statusColor = dictionaryColor(dictionaries, "device_status", device.status);
 
   return (
     <DeviceCardButton type="button" $selected={isSelected} onClick={onSelect}>
@@ -284,7 +287,7 @@ function DeviceCard({ device, isSelected, onSelect }) {
         <DeviceIdentity>
           <DeviceName>{device.name}</DeviceName>
           <DeviceMeta>ID：{device.id}</DeviceMeta>
-          <DeviceMeta>类型：{device.type}</DeviceMeta>
+          <DeviceMeta>类型：{dictionaryLabel(dictionaries, "device_type", device.type, device.type)}</DeviceMeta>
         </DeviceIdentity>
         <MoreButton
           type="button"
@@ -298,8 +301,8 @@ function DeviceCard({ device, isSelected, onSelect }) {
       <DeviceFacts>
         <DeviceFact>
           <span>状态：</span>
-          <StatusDot $tone={tone} />
-          <StatusText $tone={tone}>{statusLabels[device.status]}</StatusText>
+          <StatusDot $tone={tone} $color={statusColor} />
+          <StatusText $tone={tone} $color={statusColor}>{dictionaryLabel(dictionaries, "device_status", device.status, statusLabels[device.status])}</StatusText>
         </DeviceFact>
         <DeviceFact>
           <span>信号：</span>
@@ -355,6 +358,7 @@ function HealthRing({ value }) {
 }
 
 function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, canDelete }) {
+  const dictionaries = useRuntimeDictionaries();
   const [activeTab, setActiveTab] = useState("detail");
   const [copiedField, setCopiedField] = useState(null);
   const [activityData, setActivityData] = useState(null);
@@ -430,8 +434,8 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, 
           >
             <Copy size={13} />
           </CopyButton>
-          <StatusBadge $tone={statusTone[device.status]}>
-            {statusLabels[device.status]}
+          <StatusBadge $tone={statusTone[device.status]} $color={dictionaryColor(dictionaries, "device_status", device.status)}>
+            {dictionaryLabel(dictionaries, "device_status", device.status, statusLabels[device.status])}
           </StatusBadge>
         </DrawerTitle>
         <CloseDrawerButton
@@ -495,7 +499,7 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, 
                   </CopyButton>
                 </InfoValue>
                 <InfoLabel>设备类型</InfoLabel>
-                <InfoValue>{device.type}</InfoValue>
+                <InfoValue>{dictionaryLabel(dictionaries, "device_type", device.type, device.type)}</InfoValue>
                 <InfoLabel>所属组织</InfoLabel>
                 <InfoValue>{device.organization ?? "石安盾科技园区"}</InfoValue>
                 <InfoLabel>安装位置</InfoLabel>
@@ -504,9 +508,9 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, 
                 <InfoValue>{device.installTime ?? "--"}</InfoValue>
                 <InfoLabel>设备状态</InfoLabel>
                 <InfoValue>
-                  <StatusDot $tone={statusTone[device.status]} />
-                  <StatusText $tone={statusTone[device.status]}>
-                    {statusLabels[device.status]}
+                  <StatusDot $tone={statusTone[device.status]} $color={dictionaryColor(dictionaries, "device_status", device.status)} />
+                  <StatusText $tone={statusTone[device.status]} $color={dictionaryColor(dictionaries, "device_status", device.status)}>
+                    {dictionaryLabel(dictionaries, "device_status", device.status, statusLabels[device.status])}
                   </StatusText>
                 </InfoValue>
                 <InfoLabel>信号强度</InfoLabel>
@@ -630,7 +634,7 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, 
               <RuntimeHistory>
                 {activityData.runtime.history.map((row) => (
                   <RuntimeRow key={row.id}>
-                    <RuntimeState $tone={statusTone[normalizeDeviceStatus(row.status)]}>{statusLabels[normalizeDeviceStatus(row.status)]}</RuntimeState>
+                    <RuntimeState $tone={statusTone[normalizeDeviceStatus(row.status)]} $color={dictionaryColor(dictionaries, "device_status", row.status)}>{dictionaryLabel(dictionaries, "device_status", row.status, statusLabels[normalizeDeviceStatus(row.status)])}</RuntimeState>
                     <RuntimeTime>{formatDateTime(row.observation_time)}</RuntimeTime>
                     <RuntimeReading><span>健康</span><strong>{formatMetric(row.health_score)}</strong></RuntimeReading>
                     <RuntimeReading><span>温度</span><strong>{formatMetric(row.temperature, "℃")}</strong></RuntimeReading>
@@ -689,6 +693,8 @@ function DetailDrawer({ device, onClose, onEdit, onDelete, isMutating, canEdit, 
 }
 
 function DeviceEditDialog({ device, areas, busy, error, onClose, onSubmit }) {
+  const dictionaries = useRuntimeDictionaries();
+  const deviceTypeItems = activeDictionaryItems(dictionaries, "device_type");
   const raw = device.raw ?? {};
   const [form, setForm] = useState({
     name: raw.name ?? device.name,
@@ -749,7 +755,12 @@ function DeviceEditDialog({ device, areas, busy, error, onClose, onSubmit }) {
             </FormField>
             <FormField>
               <span>设备类型</span>
-              <input value={form.type} onChange={(event) => updateField("type", event.target.value)} />
+              <select value={form.type} onChange={(event) => updateField("type", event.target.value)}>
+                {!deviceTypeItems.some((item) => item.value === form.type) && form.type ? (
+                  <option value={form.type}>{dictionaryLabel(dictionaries, "device_type", form.type, form.type)}</option>
+                ) : null}
+                {deviceTypeItems.map((item) => <option key={item.code} value={item.value}>{item.name}</option>)}
+              </select>
             </FormField>
             <FormField>
               <span>设备分类</span>
@@ -763,11 +774,7 @@ function DeviceEditDialog({ device, areas, busy, error, onClose, onSubmit }) {
             <FormField>
               <span>运行状态</span>
               <select value={form.realtime_status} onChange={(event) => updateField("realtime_status", event.target.value)}>
-                <option value="online">在线</option>
-                <option value="offline">离线</option>
-                <option value="alarm">告警</option>
-                <option value="fault">异常</option>
-                <option value="maintenance">维护</option>
+                {activeDictionaryItems(dictionaries, "device_status").map((item) => <option key={item.code} value={item.value}>{item.name}</option>)}
               </select>
             </FormField>
             <FormField>
@@ -830,6 +837,9 @@ function DeviceDeleteDialog({ device, busy, error, onClose, onConfirm }) {
 
 function DeviceManagement() {
   const { hasPermission } = useAuth();
+  const dictionaries = useRuntimeDictionaries();
+  const deviceTypeItems = activeDictionaryItems(dictionaries, "device_type");
+  const deviceStatusItems = activeDictionaryItems(dictionaries, "device_status");
   const [searchParams] = useSearchParams();
   const initialPayload = getCachedJson(PAGE_DATA_URLS.devices);
   const initialAreaPayload = getCachedJson(PAGE_DATA_URLS.areas);
@@ -1061,11 +1071,7 @@ function DeviceManagement() {
               }
             >
               <option value="all">全部</option>
-              <option value="温">温湿度</option>
-              <option value="烟">烟感</option>
-              <option value="门">门磁</option>
-              <option value="气">气体</option>
-              <option value="摄像">摄像头</option>
+              {deviceTypeItems.map((item) => <option key={item.code} value={item.value}>{item.name}</option>)}
             </FilterSelect>
           </FilterGroup>
           <FilterGroup>
@@ -1080,10 +1086,7 @@ function DeviceManagement() {
               }
             >
               <option value="all">全部</option>
-              <option value="online">在线</option>
-              <option value="offline">离线</option>
-              <option value="alarm">告警</option>
-              <option value="fault">异常</option>
+              {deviceStatusItems.map((item) => <option key={item.code} value={item.value}>{item.name}</option>)}
             </FilterSelect>
           </FilterGroup>
           <FilterGroup>
@@ -1135,7 +1138,7 @@ function DeviceManagement() {
                   $active={activeTab === tab.key}
                   onClick={() => setActiveTab(tab.key)}
                 >
-                  {tab.label}（{tabCounts[tab.key] ?? 0}）
+                  {tab.key === "all" ? tab.label : dictionaryLabel(dictionaries, "device_status", tab.key, tab.label)}（{tabCounts[tab.key] ?? 0}）
                 </TabButton>
               ))}
             </Tabs>
@@ -1570,7 +1573,7 @@ const StatusDot = styled.span`
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: ${(p) =>
+  background: ${(p) => p.$color ||
     ({
       green: "hsl(154 78% 42%)",
       red: "hsl(0 83% 60%)",
@@ -1580,7 +1583,7 @@ const StatusDot = styled.span`
 `;
 
 const StatusText = styled.span`
-  color: ${(p) =>
+  color: ${(p) => p.$color ||
     ({
       green: "hsl(154 78% 38%)",
       red: "hsl(0 83% 58%)",
@@ -1798,8 +1801,8 @@ const CopyButton = styled.button`
 const StatusBadge = styled.span`
   border-radius: 5px;
   padding: 3px 7px;
-  color: hsl(154 78% 38%);
-  background: hsl(154 78% 42% / 0.12);
+  color: ${(p) => p.$color || "hsl(154 78% 38%)"};
+  background: ${(p) => p.$color ? `color-mix(in srgb, ${p.$color} 12%, white)` : "hsl(154 78% 42% / 0.12)"};
   font-size: ${FONT_SIZES.peopleBadge};
   font-weight: 700;
 `;
@@ -1942,8 +1945,8 @@ const RuntimeRow = styled.div`
 `;
 const RuntimeState = styled.span`
   width: fit-content; padding: 2px 5px; border-radius: 3px; font-weight: 700;
-  color: ${(p) => p.$tone === "green" ? "hsl(154 78% 35%)" : "hsl(15 82% 50%)"};
-  background: ${(p) => p.$tone === "green" ? "hsl(154 70% 94%)" : "hsl(20 90% 94%)"};
+  color: ${(p) => p.$color || (p.$tone === "green" ? "hsl(154 78% 35%)" : "hsl(15 82% 50%)")};
+  background: ${(p) => p.$color ? `color-mix(in srgb, ${p.$color} 12%, white)` : (p.$tone === "green" ? "hsl(154 70% 94%)" : "hsl(20 90% 94%)")};
 `;
 const RuntimeTime = styled.time`color: hsl(218 10% 46%); font-family: var(--font-data);`;
 const RuntimeReading = styled.div`display: grid; gap: 2px; text-align: right; span { color: hsl(218 10% 52%); } strong { color: hsl(218 18% 24%); font-family: var(--font-data); }`;

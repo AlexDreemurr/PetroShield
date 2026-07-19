@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, apiFetch, getAuthToken, readApiError, setAuthToken } from "../config/api";
 import { AuthContext } from "./authStore";
+import { loadRuntimeDictionaries, resetRuntimeDictionaries } from "../services/runtimeDictionaries";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -26,7 +27,11 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { refreshUser(); }, [refreshUser]);
   useEffect(() => {
-    const handleUnauthorized = () => { setUser(null); setIsLoading(false); };
+    if (user) loadRuntimeDictionaries().catch(() => {});
+    else resetRuntimeDictionaries();
+  }, [user]);
+  useEffect(() => {
+    const handleUnauthorized = () => { resetRuntimeDictionaries(); setUser(null); setIsLoading(false); };
     window.addEventListener("petroshield:unauthorized", handleUnauthorized);
     return () => window.removeEventListener("petroshield:unauthorized", handleUnauthorized);
   }, []);
@@ -47,6 +52,7 @@ export function AuthProvider({ children }) {
   async function logout() {
     try { await apiFetch(`${API_BASE_URL}/auth/logout`, { method: "POST" }); } catch { /* 本地令牌仍会清除 */ }
     setAuthToken(null);
+    resetRuntimeDictionaries();
     setUser(null);
   }
 

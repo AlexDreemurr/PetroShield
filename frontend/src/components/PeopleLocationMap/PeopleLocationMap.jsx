@@ -2,10 +2,11 @@
 import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
 import { getAreaLocalCenter } from "../BaiduSatelliteMap/mapGeometry";
-import { createMapMarkerIcon } from "../BaiduSatelliteMap/mapMarkerIcons";
+import { createMapMarkerIcon, getMapAreaColors } from "../BaiduSatelliteMap/mapMarkerIcons";
 import MapFullscreenButton from "../BaiduSatelliteMap/MapFullscreenButton";
 import { FONT_SIZES } from "../../constants/STYLES";
 import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../../services/pageDataCache";
+import { useRuntimeDictionaries } from "../../services/runtimeDictionaries";
 
 const MAP_CENTER = {
   lng: 121.671271,
@@ -29,13 +30,6 @@ const TRACK_COLORS = {
   arrowHalo: "#ffffff",
   turn: "#2563eb",
   start: "#64748b",
-};
-
-const AREA_COLORS = {
-  danger: { stroke: "#dc2626", fill: "#ef4444", label: "#fecaca" },
-  restricted: { stroke: "#d97706", fill: "#f59e0b", label: "#fef3c7" },
-  prohibited: { stroke: "#7f1d1d", fill: "#b91c1c", label: "#fecaca" },
-  normal: { stroke: "#15803d", fill: "#22c55e", label: "#dcfce7" },
 };
 
 function localToMap(point) {
@@ -232,11 +226,13 @@ function addTrackArrowOverlay(BMap, map, previousPoint, centerPoint, nextPoint, 
   });
 }
 
-function createPersonIcon(BMap, person, isSelected) {
+function createPersonIcon(BMap, person, isSelected, dictionaries) {
   return createMapMarkerIcon(BMap, {
     kind: "person",
+    type: person.type,
     status: person.status,
     selected: isSelected,
+    dictionarySnapshot: dictionaries,
   });
 }
 
@@ -249,6 +245,7 @@ function PeopleLocationMap({
   isDataLoading = false,
   hasDataError = false,
 }) {
+  const dictionaries = useRuntimeDictionaries();
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
   const bmapRef = useRef(null);
@@ -350,7 +347,7 @@ function PeopleLocationMap({
 
     if (showAllAreas) {
       riskAreas.filter((area) => area.enabled !== false).forEach((area) => {
-        const colors = AREA_COLORS[area.type] ?? AREA_COLORS.normal;
+        const colors = getMapAreaColors(area.type, dictionaries);
         let overlay;
         if (area.shape === "circle" && area.center && area.radius) {
           const coordinate = localToMap(area.center);
@@ -484,7 +481,7 @@ function PeopleLocationMap({
       const isSelected = person.id === selectedPersonId;
       const point = new BMap.Point(coordinate.lng, coordinate.lat);
       const marker = new BMap.Marker(point, {
-        icon: createPersonIcon(BMap, person, isSelected),
+        icon: createPersonIcon(BMap, person, isSelected, dictionaries),
       });
       if (showPersonNames) {
         const label = new BMap.Label(person.name, {
@@ -518,6 +515,7 @@ function PeopleLocationMap({
       map.panTo(new BMap.Point(coordinate.lng, coordinate.lat));
     }
   }, [
+    dictionaries,
     onPersonSelect,
     mapRevision,
     people,

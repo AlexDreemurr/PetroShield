@@ -3,17 +3,12 @@ import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
 import { getAreaLocalCenter } from "../BaiduSatelliteMap/mapGeometry";
 import MapFullscreenButton from "../BaiduSatelliteMap/MapFullscreenButton";
+import { getMapAreaColors } from "../BaiduSatelliteMap/mapMarkerIcons";
+import { useRuntimeDictionaries } from "../../services/runtimeDictionaries";
 
 const MAP_CENTER = { lng: 121.671271, lat: 29.978283 };
 const LOCAL_ORIGIN = { x: 300, y: 220 };
 const LOCAL_SCALE = { lng: 0.0000046, lat: 0.0000038 };
-
-const toneColors = {
-  danger: { stroke: "#dc2626", fill: "#ef4444", label: "#fecaca" },
-  restricted: { stroke: "#d97706", fill: "#f59e0b", label: "#fef3c7" },
-  prohibited: { stroke: "#7f1d1d", fill: "#b91c1c", label: "#fecaca" },
-  normal: { stroke: "#15803d", fill: "#22c55e", label: "#dcfce7" },
-};
 
 function localToMap(point) {
   return {
@@ -48,6 +43,7 @@ function RiskControlMap({
   isDataLoading = false,
   hasDataError = false,
 }) {
+  const dictionaries = useRuntimeDictionaries();
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
   const bmapRef = useRef(null);
@@ -114,7 +110,7 @@ function RiskControlMap({
     map.clearOverlays();
 
     areas.forEach((area) => {
-      const colors = toneColors[area.type] ?? toneColors.normal;
+      const colors = getMapAreaColors(area.type, dictionaries);
       const isSelected = area.id === selectedAreaId;
       let overlay;
 
@@ -175,7 +171,7 @@ function RiskControlMap({
       }
       map.addOverlay(label);
     });
-  }, [areas, drawMode, mapRevision, onAreaSelect, selectedAreaId, status]);
+  }, [areas, dictionaries, drawMode, mapRevision, onAreaSelect, selectedAreaId, status]);
 
   useEffect(() => {
     const BMap = bmapRef.current;

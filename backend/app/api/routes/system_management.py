@@ -5,7 +5,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 
-from app.security import connect_database, request_ip, require_permission, write_operation_log
+from app.security import connect_database, get_current_user, request_ip, require_permission, write_operation_log
 
 router = APIRouter()
 
@@ -46,6 +46,7 @@ class RolePermissionsUpdate(BaseModel):
 
 class DictionaryItemCreate(BaseModel):
     code: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z][A-Za-z0-9_]+$")
+    value: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=80)
     color: str = Field(default="#2563eb", pattern=r"^#[0-9A-Fa-f]{6}$")
     order: int = Field(default=0, ge=0, le=99999)
@@ -59,6 +60,7 @@ class DictionaryItemCreate(BaseModel):
 
 
 class DictionaryItemUpdate(BaseModel):
+    value: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=80)
     color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
     order: int = Field(ge=0, le=99999)
@@ -236,7 +238,7 @@ async def list_dictionaries(user: dict = Depends(require_permission("system.dict
                from public.system_dictionary_group order by sort_order, code"""
         )
         item_rows = await connection.fetch(
-            """select i.id, g.code as group_code, i.code, i.name, i.color,
+            """select i.id, g.code as group_code, i.code, i.business_value, i.name, i.color,
                       i.sort_order, i.status, i.remark, i.updated_at
                from public.system_dictionary_item i
                join public.system_dictionary_group g on g.id=i.group_id
@@ -245,7 +247,7 @@ async def list_dictionaries(user: dict = Depends(require_permission("system.dict
         items_by_group: dict[str, list[dict]] = {}
         for row in item_rows:
             items_by_group.setdefault(row["group_code"], []).append({
-                "id": row["id"], "code": row["code"], "name": row["name"],
+                "id": row["id"], "code": row["code"], "value": row["business_value"], "name": row["name"],
                 "color": row["color"], "order": row["sort_order"],
                 "status": row["status"], "remark": row["remark"] or "",
                 "updated_at": iso(row["updated_at"]),
@@ -263,6 +265,39 @@ async def list_dictionaries(user: dict = Depends(require_permission("system.dict
         await connection.close()
 
 
+@router.get("/dictionaries/runtime")
+async def get_runtime_dictionaries(user: dict = Depends(get_current_user)):
+    connection = await connect_database()
+    try:
+        group_rows = await connection.fetch(
+            "select code from public.system_dictionary_group order by sort_order, code"
+        )
+        rows = await connection.fetch(
+            """
+            select g.code as group_code, i.code, i.business_value,
+                   i.name, i.color, i.sort_order, i.remark, i.updated_at
+            from public.system_dictionary_item i
+            join public.system_dictionary_group g on g.id = i.group_id
+            where i.status = 'active'
+            order by g.sort_order, i.sort_order, i.code;
+            """
+        )
+        revision = max((row["updated_at"] for row in rows), default=None)
+        groups: dict[str, list[dict]] = {row["code"]: [] for row in group_rows}
+        for row in rows:
+            groups.setdefault(row["group_code"], []).append({
+                "code": row["code"],
+                "value": row["business_value"],
+                "name": row["name"],
+                "color": row["color"],
+                "order": row["sort_order"],
+                "remark": row["remark"] or "",
+            })
+        return {"revision": iso(revision), "groups": groups}
+    finally:
+        await connection.close()
+
+
 @router.post("/dictionaries/{group_code}/items", status_code=status.HTTP_201_CREATED)
 async def create_dictionary_item(group_code: str, payload: DictionaryItemCreate, request: Request, user: dict = Depends(require_permission("system.dictionaries.edit"))):
     connection = await connect_database()
@@ -273,15 +308,15 @@ async def create_dictionary_item(group_code: str, payload: DictionaryItemCreate,
                 raise HTTPException(status_code=404, detail="字典分类不存在")
             row = await connection.fetchrow(
                 """insert into public.system_dictionary_item
-                     (group_id, code, name, color, sort_order, status, remark)
-                     values ($1,$2,$3,$4,$5,$6,$7) returning id""",
-                group["id"], payload.code, payload.name.strip(), payload.color,
+                     (group_id, code, business_value, name, color, sort_order, status, remark)
+                     values ($1,$2,$3,$4,$5,$6,$7,$8) returning id""",
+                group["id"], payload.code, payload.value.strip(), payload.name.strip(), payload.color,
                 payload.order, payload.status, payload.remark.strip() if payload.remark else None,
             )
             await write_operation_log(connection, user=user, module="数据字典", action="新增字典项", target_type="system_dictionary_item", target_id=row["id"], ip_address=request_ip(request), detail=f"在{group['name']}中新增 {payload.code}")
         return {"id": row["id"]}
     except asyncpg.UniqueViolationError as exc:
-        raise HTTPException(status_code=409, detail="该分类下的字典编码已存在") from exc
+        raise HTTPException(status_code=409, detail="该分类下的字典编码或业务值已存在") from exc
     finally:
         await connection.close()
 
@@ -294,14 +329,18 @@ async def update_dictionary_item(item_id: str, payload: DictionaryItemUpdate, re
             current = await connection.fetchrow("select * from public.system_dictionary_item where id=$1 for update", item_id)
             if not current:
                 raise HTTPException(status_code=404, detail="字典项不存在")
+            if payload.value.strip() != current["business_value"]:
+                raise HTTPException(status_code=409, detail="业务值是数据绑定键，创建后不可修改；请新建字典项")
             await connection.execute(
                 """update public.system_dictionary_item
                    set name=$2, color=$3, sort_order=$4, status=$5, remark=$6 where id=$1""",
                 item_id, payload.name.strip(), payload.color, payload.order,
                 payload.status, payload.remark.strip() if payload.remark else None,
             )
-            await write_operation_log(connection, user=user, module="数据字典", action="编辑字典项", target_type="system_dictionary_item", target_id=item_id, ip_address=request_ip(request), detail=f"编辑字典项 {current['code']}", changes={"before": {"name": current["name"], "color": current["color"], "order": current["sort_order"], "status": current["status"], "remark": current["remark"]}, "after": payload.model_dump()})
+            await write_operation_log(connection, user=user, module="数据字典", action="编辑字典项", target_type="system_dictionary_item", target_id=item_id, ip_address=request_ip(request), detail=f"编辑字典项 {current['code']}", changes={"before": {"value": current["business_value"], "name": current["name"], "color": current["color"], "order": current["sort_order"], "status": current["status"], "remark": current["remark"]}, "after": payload.model_dump()})
         return {"id": item_id}
+    except asyncpg.UniqueViolationError as exc:
+        raise HTTPException(status_code=409, detail="该分类下的业务值已存在") from exc
     finally:
         await connection.close()
 

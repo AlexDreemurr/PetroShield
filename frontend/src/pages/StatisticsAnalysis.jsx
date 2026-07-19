@@ -14,6 +14,7 @@ import { API_BASE_URL } from "../config/api";
 import MiniAreaSparkline from "../components/MiniAreaSparkline/MiniAreaSparkline";
 import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
 import { getCachedJson, loadCachedJson } from "../services/pageDataCache";
+import { dictionaryColor, dictionaryLabel, useRuntimeDictionaries } from "../services/runtimeDictionaries";
 
 const chartColors = {
   blue: "hsl(217 93% 52%)",
@@ -127,13 +128,14 @@ function normalizeSeries(items, key) {
 }
 
 function MultiLineChart({ items }) {
+  const dictionaries = useRuntimeDictionaries();
   const width = 600;
   const height = 180;
   const padding = { top: 18, right: 8, bottom: 24, left: 30 };
   const keys = [
-    { key: "severe", label: "严重", color: chartColors.red },
-    { key: "medium", label: "中等", color: chartColors.orange },
-    { key: "general", label: "一般", color: chartColors.blue },
+    { key: "severe", value: "严重", label: dictionaryLabel(dictionaries, "risk_level", "严重", "严重"), color: dictionaryColor(dictionaries, "risk_level", "严重", chartColors.red) },
+    { key: "medium", value: "中等", label: dictionaryLabel(dictionaries, "risk_level", "中等", "中等"), color: dictionaryColor(dictionaries, "risk_level", "中等", chartColors.orange) },
+    { key: "general", value: "一般", label: dictionaryLabel(dictionaries, "risk_level", "一般", "一般"), color: dictionaryColor(dictionaries, "risk_level", "一般", chartColors.blue) },
   ];
   const dataMax = Math.max(
     ...items.flatMap((item) => keys.map((line) => Number(item[line.key] ?? 0))),
@@ -377,7 +379,7 @@ function DonutChart({ total, items, centerLabel, compactLegend = false }) {
               cy="64"
               r={radius}
               fill="none"
-              stroke={palette[index % palette.length]}
+              stroke={item.color ?? palette[index % palette.length]}
               strokeWidth="18"
               strokeDasharray={`${length} ${circumference - length}`}
               strokeDashoffset={dashOffset}
@@ -395,7 +397,7 @@ function DonutChart({ total, items, centerLabel, compactLegend = false }) {
       <DonutLegend>
         {items.map((item, index) => (
           <DonutLegendItem key={item.label} $compact={compactLegend}>
-            <LegendDot $color={palette[index % palette.length]} />
+            <LegendDot $color={item.color ?? palette[index % palette.length]} />
             <span>{item.label}</span>
             <strong>{item.ratio}%</strong>
             <em>{formatNumber(item.count)}</em>
@@ -480,6 +482,7 @@ function TopTable({ columns, rows, progressKey }) {
 }
 
 function StatisticsAnalysis() {
+  const dictionaries = useRuntimeDictionaries();
   const initialStatisticsUrl = `${API_BASE_URL}/statistics/overview?days=7`;
   const initialPayload = getCachedJson(initialStatisticsUrl);
   const [data, setData] = useState(() => ({ ...defaultData, ...initialPayload }));
@@ -667,7 +670,7 @@ function StatisticsAnalysis() {
           <PanelTitle>告警类型占比</PanelTitle>
           <DonutChart
             total={alarmTotal}
-            items={data.alarm_type_distribution}
+            items={data.alarm_type_distribution.map((item) => ({ ...item, label: dictionaryLabel(dictionaries, "alarm_type", item.label, item.label), color: dictionaryColor(dictionaries, "alarm_type", item.label, item.color) }))}
             centerLabel="总告警数"
             compactLegend
           />
@@ -676,7 +679,7 @@ function StatisticsAnalysis() {
           <PanelTitle>风险等级占比</PanelTitle>
           <DonutChart
             total={data.metrics.risk_area_count}
-            items={data.risk_level_distribution}
+            items={data.risk_level_distribution.map((item) => ({ ...item, label: dictionaryLabel(dictionaries, "risk_level", item.label, item.label), color: dictionaryColor(dictionaries, "risk_level", item.label, item.color) }))}
             centerLabel="风险区域"
             compactLegend
           />
@@ -740,7 +743,7 @@ function StatisticsAnalysis() {
           <PanelTitle>设备类型统计</PanelTitle>
           <DonutChart
             total={deviceTotal}
-            items={data.device_type_distribution}
+            items={data.device_type_distribution.map((item) => ({ ...item, label: dictionaryLabel(dictionaries, "device_type", item.label, item.label), color: dictionaryColor(dictionaries, "device_type", item.label, item.color) }))}
             centerLabel="总设备数"
           />
         </Panel>

@@ -38,6 +38,7 @@ import {
   primeAlarmDetail,
 } from "../services/alarmCenterCache";
 import { useAuth } from "../auth/authStore";
+import { dictionaryColor, dictionaryLabel, useRuntimeDictionaries } from "../services/runtimeDictionaries";
 
 const LEVEL_TONES = {
   重大: "critical",
@@ -119,7 +120,13 @@ function StatusBadge({ status }) {
 }
 
 function LevelBadge({ level }) {
-  return <Level $tone={LEVEL_TONES[level] ?? "normal"}>{level}</Level>;
+  const dictionaries = useRuntimeDictionaries();
+  return <Level $tone={LEVEL_TONES[level] ?? "normal"} $color={dictionaryColor(dictionaries, "risk_level", level)}>{dictionaryLabel(dictionaries, "risk_level", level, level)}</Level>;
+}
+
+function AlarmTypeLabel({ value }) {
+  const dictionaries = useRuntimeDictionaries();
+  return dictionaryLabel(dictionaries, "alarm_type", value, value);
 }
 
 function ProcessTimeline({ detail }) {
@@ -394,6 +401,7 @@ function ActionDialog({ action, operators, busy, onClose, onSubmit }) {
 
 function AlarmCenter() {
   const { hasPermission } = useAuth();
+  const dictionaries = useRuntimeDictionaries();
   const [searchParams] = useSearchParams();
   const linkedAlarmId = searchParams.get("alarm_id")?.trim() ?? "";
   const today = useMemo(() => new Date(), []);
@@ -711,7 +719,7 @@ function AlarmCenter() {
           >
             <option value="">全部</option>
             {listData.options.types.map((item) => (
-              <option key={item}>{item}</option>
+              <option key={item} value={item}>{dictionaryLabel(dictionaries, "alarm_type", item, item)}</option>
             ))}
           </select>
         </FilterField>
@@ -723,7 +731,7 @@ function AlarmCenter() {
           >
             <option value="">全部</option>
             {listData.options.levels.map((item) => (
-              <option key={item}>{item}</option>
+              <option key={item} value={item}>{dictionaryLabel(dictionaries, "risk_level", item, item)}</option>
             ))}
           </select>
         </FilterField>
@@ -789,7 +797,7 @@ function AlarmCenter() {
                       <span>{formatDateTime(item.time)}</span>
                     )}
                     {visibleColumns.includes("type") && (
-                      <strong title={item.type}>{item.type}</strong>
+                      <strong title={item.type}><AlarmTypeLabel value={item.type} /></strong>
                     )}
                     {visibleColumns.includes("level") && (
                       <span>
@@ -886,7 +894,7 @@ function AlarmCenter() {
               <DetailHeader $tone={LEVEL_TONES[detail.level] ?? "normal"}>
                 <div>
                   <Bell size={18} />
-                  <strong>{detail.type}</strong>
+                  <strong><AlarmTypeLabel value={detail.type} /></strong>
                   <LevelBadge level={detail.level} />
                 </div>
                 <span>
@@ -903,7 +911,7 @@ function AlarmCenter() {
                 <InfoRows>
                   <InfoRow>
                     <span>告警类型</span>
-                    <strong>{detail.type}</strong>
+                    <strong><AlarmTypeLabel value={detail.type} /></strong>
                   </InfoRow>
                   <InfoRow>
                     <span>风险等级</span>
@@ -1363,14 +1371,14 @@ const Level = styled.span`
   padding: 0 7px;
   align-items: center;
   border-radius: 3px;
-  color: ${(p) =>
+  color: ${(p) => p.$color ||
     ({
       critical: "#b42318",
       danger: "#d92d20",
       warning: "#b54708",
       normal: "#1769aa",
     }[p.$tone])};
-  background: ${(p) =>
+  background: ${(p) => p.$color ? `color-mix(in srgb, ${p.$color} 12%, white)` :
     ({
       critical: "#fee4e2",
       danger: "#fff0ee",

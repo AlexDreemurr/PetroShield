@@ -3,7 +3,8 @@ import styled from "styled-components";
 import { loadBaiduMap } from "../BaiduSatelliteMap/baiduMapLoader";
 import MapFullscreenButton from "../BaiduSatelliteMap/MapFullscreenButton";
 import { getAreaLocalCenter } from "../BaiduSatelliteMap/mapGeometry";
-import { createMapMarkerIcon, MAP_AREA_COLORS } from "../BaiduSatelliteMap/mapMarkerIcons";
+import { createMapMarkerIcon, getMapAreaColors } from "../BaiduSatelliteMap/mapMarkerIcons";
+import { useRuntimeDictionaries } from "../../services/runtimeDictionaries";
 
 const MAP_CENTER = { lng: 121.671271, lat: 29.978283 };
 const LOCAL_ORIGIN = { x: 300, y: 220 };
@@ -21,6 +22,7 @@ function validPoint(point) {
 }
 
 function RiskEventTraceMap({ event, areas, activeIndex }) {
+  const dictionaries = useRuntimeDictionaries();
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
   const bmapRef = useRef(null);
@@ -65,7 +67,7 @@ function RiskEventTraceMap({ event, areas, activeIndex }) {
     map.clearOverlays();
 
     (areas ?? []).forEach((area) => {
-      const colors = MAP_AREA_COLORS[area.type] ?? MAP_AREA_COLORS.normal;
+      const colors = getMapAreaColors(area.type, dictionaries);
       let overlay;
       if (area.shape === "circle" && validPoint(area.center) && area.radius) {
         const center = localToMap(area.center);
@@ -111,8 +113,8 @@ function RiskEventTraceMap({ event, areas, activeIndex }) {
     }
     const markerPoint = mapPoints[Math.min(activeIndex, mapPoints.length - 1)];
     const markerKind = track.length ? "person" : event?.subject?.kind === "device" ? "device" : "alarm";
-    map.addOverlay(new BMap.Marker(markerPoint, { icon: createMapMarkerIcon(BMap, { kind: markerKind, type: event?.subject?.meta, status: event?.level, selected: true }), title: event?.subject?.name || event?.type || "风险事件" }));
-  }, [activeIndex, areas, event, revision, status]);
+    map.addOverlay(new BMap.Marker(markerPoint, { icon: createMapMarkerIcon(BMap, { kind: markerKind, type: event?.subject?.meta, status: event?.level, selected: true, dictionarySnapshot: dictionaries }), title: event?.subject?.name || event?.type || "风险事件" }));
+  }, [activeIndex, areas, dictionaries, event, revision, status]);
 
   return <MapWrapper data-map-fullscreen={isFullscreen}><MapCanvas ref={mapNodeRef} aria-label="风险事件轨迹回放地图" /><MapFullscreenButton isFullscreen={isFullscreen} onChange={setIsFullscreen} /><Legend><span><i />事件轨迹</span><span><i className="area" />风险区域</span></Legend>{status === "loading" ? <MapStatus>地图信息加载中</MapStatus> : null}{status === "error" ? <MapStatus>地图信息加载失败</MapStatus> : null}</MapWrapper>;
 }

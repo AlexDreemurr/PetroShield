@@ -2,6 +2,7 @@
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router";
 import styled from "styled-components";
+import { dictionaryLabel, useRuntimeDictionaries } from "../services/runtimeDictionaries";
 import PeopleLocationMap from "../components/PeopleLocationMap/PeopleLocationMap";
 import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../services/pageDataCache";
 import { BUSINESS_PAGE_LAYOUT, COLORS, FONT_SIZES } from "../constants/STYLES";
@@ -447,7 +448,7 @@ function PersonDetailModal({ person, onClose }) {
           <div>
             <ModalTitle>{person.name}</ModalTitle>
             <ModalSubtitle>
-              {person.type} / {person.department ?? person.company ?? "--"}
+              <PersonTypeLabel value={person.type} /> / {person.department ?? person.company ?? "--"}
             </ModalSubtitle>
           </div>
           <CloseButton type="button" onClick={onClose}>
@@ -872,7 +873,7 @@ function PeopleManagement() {
                   >
                     <td>{person.name}</td>
                     <td>{getPersonWorkId(person)}</td>
-                    <td>{person.type}</td>
+                    <td><PersonTypeLabel value={person.type} /></td>
                     <td>{person.department ?? "--"}</td>
                     <td>
                       <StatusInline $tone={getStatusTone(person.status)}>
@@ -1516,3 +1517,7 @@ const ModalSectionTitle = styled.h3`
 `;
 
 export default PeopleManagement;
+function PersonTypeLabel({ value }) {
+  const dictionaries = useRuntimeDictionaries();
+  return dictionaryLabel(dictionaries, "person_type", value, value);
+}

@@ -33,24 +33,13 @@ import {
   setCachedJson,
 } from "../services/pageDataCache";
 import { useAuth } from "../auth/authStore";
+import { activeDictionaryItems, dictionaryLabel, useRuntimeDictionaries } from "../services/runtimeDictionaries";
 
 const AREA_TYPES = {
   danger: { label: "危险区", tone: "red" },
   restricted: { label: "限制区", tone: "orange" },
   prohibited: { label: "禁入区", tone: "darkRed" },
   normal: { label: "普通区", tone: "green" },
-};
-
-const RISK_LEVEL_LABELS = {
-  low: "低风险",
-  medium: "中风险",
-  high: "高风险",
-};
-
-const RISK_LEVEL_VALUES = {
-  低风险: "low",
-  中风险: "medium",
-  高风险: "high",
 };
 
 const PRIORITY_LABELS = {
@@ -73,7 +62,7 @@ function normalizeApiArea(item) {
     name: item.name,
     code: String(item.id).toUpperCase(),
     type: item.type,
-    riskLevel: RISK_LEVEL_LABELS[item.risk_level] ?? "低风险",
+    riskLevel: item.risk_level ?? "low",
     shape: item.shape,
     polygon: item.polygon ?? [],
     center: item.center,
@@ -100,7 +89,7 @@ function buildAreaPayload(area) {
   return {
     name: area.name.trim(),
     type: area.type,
-    risk_level: RISK_LEVEL_VALUES[area.riskLevel] ?? "low",
+    risk_level: area.riskLevel ?? "low",
     shape: area.shape,
     polygon: area.polygon ?? [],
     center: area.center ?? null,
@@ -151,6 +140,9 @@ function MetricCard({ icon: Icon, label, value, unit, tone }) {
 }
 
 function RiskControl() {
+  const dictionaries = useRuntimeDictionaries();
+  const areaTypeItems = activeDictionaryItems(dictionaries, "area_type");
+  const areaRiskItems = activeDictionaryItems(dictionaries, "area_risk_level");
   const { hasPermission } = useAuth();
   const [searchParams] = useSearchParams();
   const initialPayload = getCachedJson(PAGE_DATA_URLS.areas);
@@ -244,7 +236,7 @@ function RiskControl() {
   const metrics = useMemo(
     () => ({
       activeAreas: areas.filter((area) => area.enabled).length,
-      highRiskAreas: areas.filter((area) => area.riskLevel === "高风险").length,
+      highRiskAreas: areas.filter((area) => area.riskLevel === "high").length,
       activeRules: areas.reduce(
         (total, area) =>
           total +
@@ -272,7 +264,7 @@ function RiskControl() {
       name: `新建风险区域 ${nextIndex}`,
       code: `AREA-N-${String(nextIndex).padStart(2, "0")}`,
       type: "restricted",
-      riskLevel: "中风险",
+      riskLevel: "medium",
       manager: "待指定",
       department: "待指定",
       peopleCount: 0,
@@ -438,8 +430,8 @@ function RiskControl() {
             aria-label="区域类型筛选"
           >
             <option value="all">全部区域</option>
-            {Object.entries(AREA_TYPES).map(([key, item]) => (
-              <option key={key} value={key}>{item.label}</option>
+            {areaTypeItems.map((item) => (
+              <option key={item.code} value={item.value}>{item.name}</option>
             ))}
           </TypeSelect>
           <PrimaryButton type="button" disabled={isLoadingAreas || hasAreaLoadError || !hasPermission("risk.create")} onClick={() => startDrawing("polygon")} title={!hasPermission("risk.create") ? "当前角色无新增权限" : undefined}>
@@ -463,9 +455,7 @@ function RiskControl() {
           </PanelHeader>
           <TypeTabs>
             <TypeTab type="button" $active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>全部</TypeTab>
-            <TypeTab type="button" $active={typeFilter === "danger"} onClick={() => setTypeFilter("danger")}>危险</TypeTab>
-            <TypeTab type="button" $active={typeFilter === "restricted"} onClick={() => setTypeFilter("restricted")}>限制</TypeTab>
-            <TypeTab type="button" $active={typeFilter === "prohibited"} onClick={() => setTypeFilter("prohibited")}>禁入</TypeTab>
+            {areaTypeItems.filter((item) => item.value !== "normal").map((item) => <TypeTab key={item.code} type="button" $active={typeFilter === item.value} onClick={() => setTypeFilter(item.value)}>{item.name}</TypeTab>)}
           </TypeTabs>
           <AreaList>
             {visibleAreas.map((area) => (
@@ -477,7 +467,7 @@ function RiskControl() {
               >
                 <AreaItemTop>
                   <AreaName>{area.name}</AreaName>
-                  <AreaType $tone={AREA_TYPES[area.type].tone}>{AREA_TYPES[area.type].label}</AreaType>
+                  <AreaType $tone={AREA_TYPES[area.type]?.tone ?? "green"}>{dictionaryLabel(dictionaries, "area_type", area.type, AREA_TYPES[area.type]?.label ?? area.type)}</AreaType>
                 </AreaItemTop>
                 <AreaMeta><MapPin size={12} />{area.code}<span>负责人：{area.manager}</span></AreaMeta>
                 <AreaStats>
@@ -527,8 +517,8 @@ function RiskControl() {
               hasDataError={hasAreaLoadError}
             />
             <MapLegend>
-              {Object.entries(AREA_TYPES).map(([key, item]) => (
-                <span key={key}><i data-tone={item.tone} />{item.label}</span>
+              {areaTypeItems.map((item) => (
+                <span key={item.code}><i style={{ background: item.color, borderColor: item.color }} />{item.name}</span>
               ))}
             </MapLegend>
             <MonitorSummary>
@@ -557,13 +547,13 @@ function RiskControl() {
                 <Field>
                   <label>区域类型</label>
                   <select value={draft.type} onChange={(event) => updateDraft("type", event.target.value)}>
-                    {Object.entries(AREA_TYPES).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}
+                    {areaTypeItems.map((item) => <option key={item.code} value={item.value}>{item.name}</option>)}
                   </select>
                 </Field>
                 <Field>
                   <label>风险等级</label>
                   <select value={draft.riskLevel} onChange={(event) => updateDraft("riskLevel", event.target.value)}>
-                    <option>低风险</option><option>中风险</option><option>高风险</option>
+                    {areaRiskItems.map((item) => <option key={item.code} value={item.value}>{item.name}</option>)}
                   </select>
                 </Field>
                 <Field>

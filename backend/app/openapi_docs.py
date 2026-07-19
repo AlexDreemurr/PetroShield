@@ -304,16 +304,20 @@ OPERATION_DOCS: dict[tuple[str, str], dict[str, Any]] = {
         permission="system.roles.edit", parameters={"role_id": "系统角色唯一编号。"}, request_examples={"permissions": {"summary": "分配告警与设备权限", "value": {"permission_codes": ["dashboard.view", "devices.view", "alarms.view", "alarms.confirm", "alarms.dispatch"]}}}, response_status="204", response_description="权限更新成功，响应体为空", errors=(401, 403, 404, 422, 503),
     ),
     ("get", "/api/v1/system/dictionaries"): _doc(
-        "获取数据字典", "返回字典分组及真实数据库字典项，供界面选项和颜色语义使用。",
-        permission="system.dictionaries.view", response_example={"items": [{"code": "alarm_type", "name": "告警类型", "items": [{"id": "dict-alarm-area-intrusion", "code": "AREA_INTRUSION", "name": "人员进入危险区域", "color": "#ef4444", "order": 10, "status": "active", "remark": None}]}]}, errors=(401, 403, 503),
+        "获取数据字典", "返回管理端字典分组及全部字典项。value 是与业务表真实字段匹配的稳定值，name 和 color 是可动态调整的界面语义。",
+        permission="system.dictionaries.view", response_example={"items": [{"code": "alarm_type", "name": "告警类型", "items": [{"id": "dict-alarm-area-intrusion", "code": "AREA_INTRUSION", "value": "人员进入危险区域", "name": "危险区域闯入", "color": "#ef4444", "order": 10, "status": "active", "remark": None}]}]}, errors=(401, 403, 503),
+    ),
+    ("get", "/api/v1/system/dictionaries/runtime"): _doc(
+        "获取运行时数据字典", "返回所有启用字典项并按分组代码聚合。地图、筛选器、图例和状态标签使用该接口统一解析业务值、显示名称与颜色。",
+        permission="登录用户", response_example={"revision": "2026-07-19T10:45:20+00:00", "groups": {"risk_level": [{"code": "HIGH", "value": "严重", "name": "严重风险", "color": "#ef4444", "order": 10, "remark": None}]}}, errors=(401, 503),
     ),
     ("post", "/api/v1/system/dictionaries/{group_code}/items"): _doc(
-        "新增字典项", "向指定字典分组新增可持久化字典项；代码会自动转换为大写。",
-        permission="system.dictionaries.edit", parameters={"group_code": "字典分组代码，例如 alarm_type。"}, request_examples={"item": {"summary": "新增告警类型", "value": {"code": "GAS_LEAK", "name": "可燃气体泄漏", "color": "#ef4444", "order": 20, "status": "active", "remark": "气体传感器触发"}}}, response_status="201", response_example={"id": "dict-example", "group_code": "alarm_type", "code": "GAS_LEAK", "name": "可燃气体泄漏", "color": "#ef4444", "order": 20, "status": "active"}, errors=(401, 403, 404, 409, 422, 503),
+        "新增字典项", "向指定分组新增持久化字典项。code 是不可变管理编码；value 必须与业务接口和数据库字段的实际取值一致。",
+        permission="system.dictionaries.edit", parameters={"group_code": "字典分组代码，例如 alarm_type。"}, request_examples={"item": {"summary": "新增告警类型", "value": {"code": "GAS_LEAK", "value": "可燃气体泄漏", "name": "气体泄漏", "color": "#ef4444", "order": 20, "status": "active", "remark": "气体传感器触发"}}}, response_status="201", response_example={"id": "dict-example"}, errors=(401, 403, 404, 409, 422, 503),
     ),
     ("put", "/api/v1/system/dictionaries/items/{item_id}"): _doc(
-        "修改字典项", "修改字典项名称、颜色、排序、状态和备注；字典代码保持不变。",
-        permission="system.dictionaries.edit", parameters={"item_id": "字典项唯一编号。"}, request_examples={"item": {"summary": "调整字典展示", "value": {"name": "可燃气体泄漏", "color": "#dc2626", "order": 10, "status": "active", "remark": "高优先级气体告警"}}}, response_example={"id": "dict-example", "code": "GAS_LEAK", "name": "可燃气体泄漏", "color": "#dc2626", "order": 10, "status": "active"}, errors=(401, 403, 404, 422, 503),
+        "修改字典项", "修改显示名称、颜色、排序、状态和备注。code 与 value 均是稳定数据绑定键，创建后不可修改。",
+        permission="system.dictionaries.edit", parameters={"item_id": "字典项唯一编号。"}, request_examples={"item": {"summary": "调整字典展示", "value": {"value": "可燃气体泄漏", "name": "气体泄漏", "color": "#dc2626", "order": 10, "status": "active", "remark": "高优先级气体告警"}}}, response_example={"id": "dict-example"}, errors=(401, 403, 404, 409, 422, 503),
     ),
     ("delete", "/api/v1/system/dictionaries/items/{item_id}"): _doc(
         "删除字典项", "永久删除指定字典项并记录操作日志。该操作不可撤销。",
@@ -398,13 +402,13 @@ SCHEMA_DOCS: dict[str, dict[str, Any]] = {
     },
     "DictionaryItemCreate": {
         "description": "新建数据字典项。",
-        "fields": {"code": "字典项代码，以字母开头，保存时转换为大写。", "name": "界面显示名称。", "color": "十六进制主题色，例如 #ef4444。", "order": "排序值，越小越靠前。", "status": "状态：active 启用、disabled 停用。", "remark": "用途或业务备注。"},
-        "example": {"code": "GAS_LEAK", "name": "可燃气体泄漏", "color": "#ef4444", "order": 20, "status": "active", "remark": "气体传感器触发"},
+        "fields": {"code": "字典项管理编码，以字母开头，保存时转换为大写。", "value": "业务值，必须与业务表或接口字段的真实取值完全一致。", "name": "界面显示名称。", "color": "十六进制主题色，例如 #ef4444。", "order": "排序值，越小越靠前。", "status": "状态：active 启用、disabled 停用。", "remark": "用途或业务备注。"},
+        "example": {"code": "GAS_LEAK", "value": "可燃气体泄漏", "name": "气体泄漏", "color": "#ef4444", "order": 20, "status": "active", "remark": "气体传感器触发"},
     },
     "DictionaryItemUpdate": {
-        "description": "修改数据字典项的展示属性，代码不可修改。",
-        "fields": {"name": "界面显示名称。", "color": "十六进制主题色。", "order": "排序值，越小越靠前。", "status": "状态：active 启用、disabled 停用。", "remark": "用途或业务备注。"},
-        "example": {"name": "可燃气体泄漏", "color": "#dc2626", "order": 10, "status": "active", "remark": "高优先级气体告警"},
+        "description": "修改数据字典项的展示属性，代码和业务值不可修改。",
+        "fields": {"value": "原业务值，用于并发校验，不允许修改。", "name": "界面显示名称。", "color": "十六进制主题色。", "order": "排序值，越小越靠前。", "status": "状态：active 启用、disabled 停用。", "remark": "用途或业务备注。"},
+        "example": {"value": "可燃气体泄漏", "name": "气体泄漏", "color": "#dc2626", "order": 10, "status": "active", "remark": "高优先级气体告警"},
     },
 }
 

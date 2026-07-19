@@ -161,6 +161,15 @@ petroshield/
 
 注意：统计分析仅“风险态势总览”已接入完整内容，其他统计子页面仍待分别实现。
 
+### 运行时数据字典
+
+- `system_dictionary_item.business_value` 是业务绑定键，必须与业务表/API 的真实值一致，创建后不可修改。
+- `code` 用于管理和审计；`name`、`color`、`sort_order`、`status` 用于动态界面展示。
+- 登录后前端统一读取 `GET /api/v1/system/dictionaries/runtime`，并把字典应用到首页、人员/设备管理、告警中心、风险管控、风险事件追溯、统计分析及所有百度地图的标签、图例和颜色。
+- 数据字典页面保存、启停或删除项目后会强制刷新全局字典快照；已挂载页面通过 `useSyncExternalStore` 同步更新，无需刷新浏览器。
+- 后端会返回空分组，因此某分类全部停用时前端不会回退到内置默认项。接口不可用时才使用前端默认字典保证基础可读性。
+- 对应数据库迁移：`database/supabase/migrations/20260719000500_bind_system_dictionary_values.sql`。
+
 ## 5. Dashboard 当前实现
 
 主要文件：

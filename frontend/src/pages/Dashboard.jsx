@@ -13,6 +13,7 @@ import {
   loadCachedJson,
   warmApplicationPages,
 } from "../services/pageDataCache";
+import { dictionaryColor, dictionaryLabel, useRuntimeDictionaries } from "../services/runtimeDictionaries";
 
 const ALARM_PAGE_SIZE = 5;
 const DASHBOARD_URLS = {
@@ -210,21 +211,21 @@ function buildHourlyDayBoundaries(items) {
   });
 }
 
-function buildAlarmTrendLines(items) {
+function buildAlarmTrendLines(items, dictionaries) {
   return [
     {
-      label: "重大",
-      color: "hsl(348 83% 47%)",
+      label: dictionaryLabel(dictionaries, "risk_level", "重大", "重大"),
+      color: dictionaryColor(dictionaries, "risk_level", "重大", "hsl(348 83% 47%)"),
       values: items.map((item) => Number(item.major ?? 0)),
     },
     {
-      label: "严重",
-      color: "hsl(25 95% 53%)",
+      label: dictionaryLabel(dictionaries, "risk_level", "严重", "严重"),
+      color: dictionaryColor(dictionaries, "risk_level", "严重", "hsl(25 95% 53%)"),
       values: items.map((item) => Number(item.severe ?? 0)),
     },
     {
-      label: "一般",
-      color: "hsl(48 96% 50%)",
+      label: dictionaryLabel(dictionaries, "risk_level", "一般", "一般"),
+      color: dictionaryColor(dictionaries, "risk_level", "一般", "hsl(48 96% 50%)"),
       values: items.map((item) => Number(item.general ?? 0)),
     },
   ];
@@ -487,6 +488,7 @@ function FactoryMapCard({ alarms, alarmSelection }) {
 }
 
 function RealtimeAlarmCard({ total, items, hasError, isLoading, onAlarmSelect }) {
+  const dictionaries = useRuntimeDictionaries();
   const displayItems = isLoading || hasError ? [] : items;
   const [currentPage, setCurrentPage] = useState(0);
   const pageCount = Math.max(
@@ -547,14 +549,14 @@ function RealtimeAlarmCard({ total, items, hasError, isLoading, onAlarmSelect })
           >
             {item ? (
               <>
-                <AlarmIcon $tone={item.tone}>
+                <AlarmIcon $tone={item.tone} $color={dictionaryColor(dictionaries, "risk_level", item.level)}>
                   <Icon id="Siren" size={16} strokeWidth={2} />
                 </AlarmIcon>
                 <AlarmContent>
-                  <AlarmTitle>{item.title}</AlarmTitle>
+                  <AlarmTitle>{dictionaryLabel(dictionaries, "alarm_type", item.type, item.title)}</AlarmTitle>
                   <AlarmMeta>{item.meta}</AlarmMeta>
                 </AlarmContent>
-                <AlarmLevel $tone={item.tone}>{item.level}</AlarmLevel>
+                <AlarmLevel $tone={item.tone} $color={dictionaryColor(dictionaries, "risk_level", item.level)}>{dictionaryLabel(dictionaries, "risk_level", item.level, item.level)}</AlarmLevel>
                 <AlarmTime>{item.time}</AlarmTime>
               </>
             ) : null}
@@ -915,7 +917,8 @@ function AlarmTrendCard({
   onRangeDaysChange,
   onGranularityChange,
 }) {
-  const lines = buildAlarmTrendLines(items);
+  const dictionaries = useRuntimeDictionaries();
+  const lines = buildAlarmTrendLines(items, dictionaries);
   const days = items.map((item) => {
     const value = item.bucket_start ?? item.date;
     return granularity === "hour"
@@ -2008,8 +2011,8 @@ const AlarmIcon = styled.div`
   display: grid;
   place-items: center;
   border-radius: 100%;
-  color: ${(p) => (mapToneColors[p.$tone] ?? mapToneColors.amber).text};
-  background: ${(p) =>
+  color: ${(p) => p.$color || (mapToneColors[p.$tone] ?? mapToneColors.amber).text};
+  background: ${(p) => p.$color ? `color-mix(in srgb, ${p.$color} 13%, white)` :
     (mapToneColors[p.$tone] ?? mapToneColors.amber).background};
 `;
 
@@ -2046,8 +2049,8 @@ const AlarmLevel = styled.span`
   white-space: nowrap;
   border-radius: 5px;
   padding: 3px 7px;
-  color: ${(p) => (mapToneColors[p.$tone] ?? mapToneColors.amber).text};
-  background: ${(p) =>
+  color: ${(p) => p.$color || (mapToneColors[p.$tone] ?? mapToneColors.amber).text};
+  background: ${(p) => p.$color ? `color-mix(in srgb, ${p.$color} 13%, white)` :
     (mapToneColors[p.$tone] ?? mapToneColors.amber).background};
   font-size: ${FONT_SIZES.dashboardAlarmBadge};
   font-weight: 700;

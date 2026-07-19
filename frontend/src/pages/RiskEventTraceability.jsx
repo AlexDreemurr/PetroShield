@@ -9,10 +9,21 @@ import {
 import RiskEventTraceMap from "../components/RiskEventTraceMap/RiskEventTraceMap";
 import { BUSINESS_PAGE_LAYOUT } from "../constants/STYLES";
 import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../services/pageDataCache";
+import { dictionaryColor, dictionaryLabel, useRuntimeDictionaries } from "../services/runtimeDictionaries";
 
 const PAGE_SIZE = 10;
 const LEVEL_ORDER = { 重大: 4, 严重: 3, 中等: 2, 一般: 1 };
 const CLOSED_STATUSES = new Set(["关闭", "误报"]);
+
+function DynamicLevelBadge({ level }) {
+  const dictionaries = useRuntimeDictionaries();
+  return <LevelBadge $level={level} $color={dictionaryColor(dictionaries, "risk_level", level)}>{dictionaryLabel(dictionaries, "risk_level", level, level)}</LevelBadge>;
+}
+
+function DynamicAlarmType({ value }) {
+  const dictionaries = useRuntimeDictionaries();
+  return dictionaryLabel(dictionaries, "alarm_type", value, value);
+}
 
 function formatDateTime(value, seconds = true) {
   if (!value) return "--";
@@ -117,7 +128,7 @@ function RiskEventTraceability() {
         <EventPanel>
           <PanelHeader><div><strong>事件列表</strong><span>共 {filtered.length} 条</span></div><small>风险优先</small></PanelHeader>
           <EventTableHead><span>发生时间</span><span>人员 / 设备</span><span>事件类型</span><span>风险</span></EventTableHead>
-          <EventList>{loading && !payload ? <Empty>风险事件加载中...</Empty> : error ? <Empty $error>{error}</Empty> : pageItems.length ? pageItems.map((event) => <EventRow key={event.id} type="button" $active={selected?.id === event.id} onClick={() => setSelectedId(event.id)}><time>{formatDateTime(event.time, false)}</time><span title={event.subject?.name}>{event.subject?.name || event.area?.name || "区域事件"}</span><strong title={event.type}>{event.type}</strong><LevelBadge $level={event.level}>{event.level}</LevelBadge></EventRow>) : <Empty>暂无匹配事件</Empty>}</EventList>
+          <EventList>{loading && !payload ? <Empty>风险事件加载中...</Empty> : error ? <Empty $error>{error}</Empty> : pageItems.length ? pageItems.map((event) => <EventRow key={event.id} type="button" $active={selected?.id === event.id} onClick={() => setSelectedId(event.id)}><time>{formatDateTime(event.time, false)}</time><span title={event.subject?.name}>{event.subject?.name || event.area?.name || "区域事件"}</span><strong title={event.type}><DynamicAlarmType value={event.type} /></strong><DynamicLevelBadge level={event.level} /></EventRow>) : <Empty>暂无匹配事件</Empty>}</EventList>
           <Pagination><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft size={14} /></button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}><ChevronRight size={14} /></button></Pagination>
         </EventPanel>
 
@@ -128,7 +139,7 @@ function RiskEventTraceability() {
         </MapPanel>
 
         <DetailPanel>{selected ? <><PanelHeader><div><strong>事件详情</strong><span>{selected.type}　{selected.id}</span></div><AlarmLink to={`/alarm-center?alarm_id=${selected.id}`}>进入告警中心<ChevronRight size={13} /></AlarmLink></PanelHeader><DetailScroll>
-          <DetailGrid><span>事件类型</span><strong>{selected.type}</strong><span>风险等级</span><LevelBadge $level={selected.level}>{selected.level}</LevelBadge><span>关联对象</span><strong>{selected.subject?.name || "区域事件"}</strong><span>所在区域</span><strong>{selected.area?.name}</strong><span>开始时间</span><strong>{formatDateTime(selected.time)}</strong><span>持续时长</span><strong>{durationText(selected)}</strong><span>置信度</span><strong>{selected.confidence == null ? "--" : `${(selected.confidence * 100).toFixed(1)}%`}</strong><span>当前状态</span><StatusTag $closed={CLOSED_STATUSES.has(selected.status)}>{selected.status}</StatusTag></DetailGrid>
+          <DetailGrid><span>事件类型</span><strong><DynamicAlarmType value={selected.type} /></strong><span>风险等级</span><DynamicLevelBadge level={selected.level} /><span>关联对象</span><strong>{selected.subject?.name || "区域事件"}</strong><span>所在区域</span><strong>{selected.area?.name}</strong><span>开始时间</span><strong>{formatDateTime(selected.time)}</strong><span>持续时长</span><strong>{durationText(selected)}</strong><span>置信度</span><strong>{selected.confidence == null ? "--" : `${(selected.confidence * 100).toFixed(1)}%`}</strong><span>当前状态</span><StatusTag $closed={CLOSED_STATUSES.has(selected.status)}>{selected.status}</StatusTag></DetailGrid>
           <Description>{selected.description || "暂无事件描述"}</Description>
           <ChainTitle>责任追溯链</ChainTitle><ResponsibilityChain>{selected.logs?.length ? selected.logs.map((log) => <ChainItem key={log.id}><i /><div><strong>{log.operator_name || "系统"}</strong><span>{log.comment || `${log.from_status || "--"} → ${log.to_status || "--"}`}</span></div><time>{formatDateTime(log.create_time, false)}</time></ChainItem>) : <ChainEmpty>事件尚无人工操作记录</ChainEmpty>}</ResponsibilityChain>
         </DetailScroll></> : <Empty>请选择事件</Empty>}</DetailPanel>
@@ -160,7 +171,7 @@ const PanelHeader = styled.header`display:flex;align-items:center;justify-conten
 const EventTableHead = styled.div`display:grid;grid-template-columns:1.15fr 1fr 1fr 48px;gap:7px;align-items:center;padding:0 11px;background:hsl(216 30% 98%);color:hsl(218 10% 48%);font-size:10px;`;
 const EventList = styled.div`min-height:0;overflow:auto;`;
 const EventRow = styled.button`width:100%;height:48px;display:grid;grid-template-columns:1.15fr 1fr 1fr 48px;align-items:center;gap:7px;padding:0 11px;border:0;border-bottom:1px solid hsl(220 15% 92%);text-align:left;background:${(p)=>p.$active?"hsl(216 92% 95%)":"white"};box-shadow:${(p)=>p.$active?"inset 3px 0 #2563eb":"none"};color:inherit;font-size:10px;time,span,strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}strong{font-size:11px}&:hover{background:hsl(216 45% 97%)}`;
-const LevelBadge = styled.span`width:fit-content;display:inline-flex;justify-content:center;border:1px solid ${(p)=>["重大","严重"].includes(p.$level)?"#fecaca":"#fed7aa"};border-radius:4px;padding:2px 6px;color:${(p)=>["重大","严重"].includes(p.$level)?"#dc2626":"#d97706"};background:${(p)=>["重大","严重"].includes(p.$level)?"#fef2f2":"#fff7ed"};font-size:9px;font-weight:700;white-space:nowrap;`;
+const LevelBadge = styled.span`width:fit-content;display:inline-flex;justify-content:center;border:1px solid ${(p)=>p.$color || (["重大","严重"].includes(p.$level)?"#fecaca":"#fed7aa")};border-radius:4px;padding:2px 6px;color:${(p)=>p.$color || (["重大","严重"].includes(p.$level)?"#dc2626":"#d97706")};background:${(p)=>p.$color ? `color-mix(in srgb, ${p.$color} 12%, white)` : (["重大","严重"].includes(p.$level)?"#fef2f2":"#fff7ed")};font-size:9px;font-weight:700;white-space:nowrap;`;
 const Pagination = styled.footer`display:flex;align-items:center;justify-content:center;gap:12px;border-top:1px solid hsl(220 15% 90%);font-size:10px;button{width:26px;height:25px;display:grid;place-items:center;border:1px solid hsl(220 14% 85%);border-radius:4px;background:white}button:disabled{opacity:.4}`;
 const MapBody = styled.div`min-height:0;overflow:hidden;`;
 const MapLegend = styled.div`display:flex;align-items:center;gap:6px;color:hsl(218 10% 48%);font-size:9px;i{width:6px;height:6px;border-radius:50%;background:#10b981}.medium{background:#f59e0b}.high{background:#ef4444}`;
