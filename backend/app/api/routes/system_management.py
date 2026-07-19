@@ -44,6 +44,28 @@ class RolePermissionsUpdate(BaseModel):
     permission_codes: list[str] = Field(default_factory=list, max_length=200)
 
 
+class DictionaryItemCreate(BaseModel):
+    code: str = Field(min_length=2, max_length=64, pattern=r"^[A-Za-z][A-Za-z0-9_]+$")
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(default="#2563eb", pattern=r"^#[0-9A-Fa-f]{6}$")
+    order: int = Field(default=0, ge=0, le=99999)
+    status: Literal["active", "disabled"] = "active"
+    remark: str | None = Field(default=None, max_length=300)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class DictionaryItemUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    order: int = Field(ge=0, le=99999)
+    status: Literal["active", "disabled"]
+    remark: str | None = Field(default=None, max_length=300)
+
+
 def iso(value):
     return value.isoformat() if value else None
 
@@ -201,6 +223,98 @@ async def update_role_permissions(role_id: str, payload: RolePermissionsUpdate, 
             if requested:
                 await connection.executemany("insert into public.system_role_permission (role_id, permission_code) values ($1,$2)", [(role_id, code) for code in sorted(requested)])
             await write_operation_log(connection, user=user, module="角色权限", action="修改权限", target_type="system_role", target_id=role_id, ip_address=request_ip(request), detail=f"更新角色 {role['name']} 权限", changes={"before": before, "after": sorted(requested)})
+    finally:
+        await connection.close()
+
+
+@router.get("/dictionaries")
+async def list_dictionaries(user: dict = Depends(require_permission("system.dictionaries.view"))):
+    connection = await connect_database()
+    try:
+        group_rows = await connection.fetch(
+            """select id, code, name, description, sort_order
+               from public.system_dictionary_group order by sort_order, code"""
+        )
+        item_rows = await connection.fetch(
+            """select i.id, g.code as group_code, i.code, i.name, i.color,
+                      i.sort_order, i.status, i.remark, i.updated_at
+               from public.system_dictionary_item i
+               join public.system_dictionary_group g on g.id=i.group_id
+               order by g.sort_order, i.sort_order, i.code"""
+        )
+        items_by_group: dict[str, list[dict]] = {}
+        for row in item_rows:
+            items_by_group.setdefault(row["group_code"], []).append({
+                "id": row["id"], "code": row["code"], "name": row["name"],
+                "color": row["color"], "order": row["sort_order"],
+                "status": row["status"], "remark": row["remark"] or "",
+                "updated_at": iso(row["updated_at"]),
+            })
+        groups = [
+            {
+                "id": row["code"], "database_id": row["id"], "name": row["name"],
+                "description": row["description"] or "", "order": row["sort_order"],
+                "items": items_by_group.get(row["code"], []),
+            }
+            for row in group_rows
+        ]
+        return {"items": groups, "total": len(groups)}
+    finally:
+        await connection.close()
+
+
+@router.post("/dictionaries/{group_code}/items", status_code=status.HTTP_201_CREATED)
+async def create_dictionary_item(group_code: str, payload: DictionaryItemCreate, request: Request, user: dict = Depends(require_permission("system.dictionaries.edit"))):
+    connection = await connect_database()
+    try:
+        async with connection.transaction():
+            group = await connection.fetchrow("select id, name from public.system_dictionary_group where code=$1", group_code)
+            if not group:
+                raise HTTPException(status_code=404, detail="字典分类不存在")
+            row = await connection.fetchrow(
+                """insert into public.system_dictionary_item
+                     (group_id, code, name, color, sort_order, status, remark)
+                     values ($1,$2,$3,$4,$5,$6,$7) returning id""",
+                group["id"], payload.code, payload.name.strip(), payload.color,
+                payload.order, payload.status, payload.remark.strip() if payload.remark else None,
+            )
+            await write_operation_log(connection, user=user, module="数据字典", action="新增字典项", target_type="system_dictionary_item", target_id=row["id"], ip_address=request_ip(request), detail=f"在{group['name']}中新增 {payload.code}")
+        return {"id": row["id"]}
+    except asyncpg.UniqueViolationError as exc:
+        raise HTTPException(status_code=409, detail="该分类下的字典编码已存在") from exc
+    finally:
+        await connection.close()
+
+
+@router.put("/dictionaries/items/{item_id}")
+async def update_dictionary_item(item_id: str, payload: DictionaryItemUpdate, request: Request, user: dict = Depends(require_permission("system.dictionaries.edit"))):
+    connection = await connect_database()
+    try:
+        async with connection.transaction():
+            current = await connection.fetchrow("select * from public.system_dictionary_item where id=$1 for update", item_id)
+            if not current:
+                raise HTTPException(status_code=404, detail="字典项不存在")
+            await connection.execute(
+                """update public.system_dictionary_item
+                   set name=$2, color=$3, sort_order=$4, status=$5, remark=$6 where id=$1""",
+                item_id, payload.name.strip(), payload.color, payload.order,
+                payload.status, payload.remark.strip() if payload.remark else None,
+            )
+            await write_operation_log(connection, user=user, module="数据字典", action="编辑字典项", target_type="system_dictionary_item", target_id=item_id, ip_address=request_ip(request), detail=f"编辑字典项 {current['code']}", changes={"before": {"name": current["name"], "color": current["color"], "order": current["sort_order"], "status": current["status"], "remark": current["remark"]}, "after": payload.model_dump()})
+        return {"id": item_id}
+    finally:
+        await connection.close()
+
+
+@router.delete("/dictionaries/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_dictionary_item(item_id: str, request: Request, user: dict = Depends(require_permission("system.dictionaries.edit"))):
+    connection = await connect_database()
+    try:
+        async with connection.transaction():
+            current = await connection.fetchrow("delete from public.system_dictionary_item where id=$1 returning code, name", item_id)
+            if not current:
+                raise HTTPException(status_code=404, detail="字典项不存在")
+            await write_operation_log(connection, user=user, module="数据字典", action="删除字典项", target_type="system_dictionary_item", target_id=item_id, ip_address=request_ip(request), detail=f"删除字典项 {current['code']} / {current['name']}")
     finally:
         await connection.close()
 

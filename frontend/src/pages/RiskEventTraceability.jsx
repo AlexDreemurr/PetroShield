@@ -11,6 +11,8 @@ import {
   Database,
   FileCheck2,
   Filter,
+  Clock3,
+  MapPin,
   RadioTower,
   RefreshCw,
   Search,
@@ -24,6 +26,10 @@ import { getCachedJson, loadCachedJson, PAGE_DATA_URLS } from "../services/pageD
 
 const LEVEL_ORDER = { 重大: 3, 严重: 2, 中等: 1, 一般: 0 };
 const CLOSED_STATUSES = new Set(["关闭", "误报"]);
+
+function isDeepSeekAdvice(advice) {
+  return advice?.source === "deepseek" && advice?.generation_status !== "fallback";
+}
 
 const STAGE_DEFINITIONS = [
   { key: "collect", label: "数据采集", icon: Database, group: "系统识别" },
@@ -196,15 +202,18 @@ function RiskEventTraceability() {
 
       <Workspace>
         <EventPanel>
-          <PanelHeader><strong>事件记录</strong><span>按风险等级与时间排序</span></PanelHeader>
-          <EventTableHeader><span>事件</span><span>区域 / 对象</span><span>状态</span></EventTableHeader>
+          <PanelHeader><div><strong>事件记录</strong><span>风险优先，最新事件靠前</span></div><PanelCount>{filteredEvents.length}</PanelCount></PanelHeader>
           <EventList>
             {loading && !payload ? <EmptyState>风险事件加载中...</EmptyState> : error ? <EmptyState>{error}</EmptyState> : filteredEvents.length === 0 ? <EmptyState>暂无匹配事件</EmptyState> : filteredEvents.map((event) => (
               <EventRow key={event.id} type="button" $active={selectedEvent?.id === event.id} onClick={() => setSelectedId(event.id)}>
-                <EventMain><div><LevelBadge $level={event.level}>{event.level}</LevelBadge><strong>{event.type}</strong></div><span>{formatDateTime(event.time)} · {event.id}</span></EventMain>
-                <EventLocation><strong>{event.area?.name}</strong><span>{event.subject?.name || "区域事件"}</span></EventLocation>
-                <StatusBadge $status={event.status}>{event.status}</StatusBadge>
-                <ChevronRight size={15} />
+                <EventRowTop><div><LevelBadge $level={event.level}>{event.level}</LevelBadge><strong>{event.type}</strong></div><StatusBadge $status={event.status}>{event.status}</StatusBadge></EventRowTop>
+                <EventDescription>{event.description || `${event.type}事件已进入追溯流程`}</EventDescription>
+                <EventMeta>
+                  <span><MapPin size={12} />{event.area?.name || "未标注区域"}</span>
+                  <span>{event.subject?.name || "区域事件"}</span>
+                  <time><Clock3 size={12} />{formatDateTime(event.time)}</time>
+                </EventMeta>
+                <EventArrow><ChevronRight size={16} /></EventArrow>
               </EventRow>
             ))}
           </EventList>
@@ -214,7 +223,7 @@ function RiskEventTraceability() {
           {selectedEvent ? (
             <>
               <DetailHeader>
-                <div><span>{selectedEvent.id}</span><h2>{selectedEvent.type}</h2><p>{selectedEvent.description || "暂无事件描述"}</p></div>
+                <div><DetailTitleLine><h2>{selectedEvent.type}</h2><EventId>{selectedEvent.id}</EventId></DetailTitleLine><p>{selectedEvent.description || "暂无事件描述"}</p></div>
                 <HeaderActions><LevelBadge $level={selectedEvent.level}>{selectedEvent.level}</LevelBadge><StatusBadge $status={selectedEvent.status}>{selectedEvent.status}</StatusBadge><AlarmLink to={`/alarm-center?alarm_id=${selectedEvent.id}`}>进入告警中心<ChevronRight size={14} /></AlarmLink></HeaderActions>
               </DetailHeader>
               <MetaStrip>
@@ -232,9 +241,18 @@ function RiskEventTraceability() {
                   </FlowColumns>
                 </TraceSection>
                 <RecordColumn>
-                  <RecordBlock><RecordTitle><ClipboardCheck size={15} />派单与现场反馈</RecordTitle>{selectedEvent.assignment ? <RecordText><strong>{selectedEvent.assignment.assignee_name || selectedEvent.assignment.department || "待接单"}</strong><span>{selectedEvent.assignment.instruction}</span><p>{selectedEvent.assignment.feedback || "尚未提交现场处置反馈"}</p></RecordText> : <RecordEmpty>该事件尚未派发处理</RecordEmpty>}</RecordBlock>
-                  <RecordBlock><RecordTitle><Bot size={15} />AI 处置建议</RecordTitle>{selectedEvent.advice ? <RecordText><strong>{selectedEvent.advice.model || selectedEvent.advice.source}</strong><p>{selectedEvent.advice.content}</p></RecordText> : <RecordEmpty>确认告警后生成处置建议</RecordEmpty>}</RecordBlock>
-                  <RecordBlock><RecordTitle><FileCheck2 size={15} />证据与审计</RecordTitle><AuditRows><span>原始证据 <strong>{Array.isArray(selectedEvent.evidence) ? selectedEvent.evidence.length : 0} 项</strong></span><span>操作日志 <strong>{selectedEvent.logs?.length ?? 0} 条</strong></span><span>最后更新 <strong>{formatDateTime(selectedEvent.update_time)}</strong></span></AuditRows></RecordBlock>
+                  <RecordBlock>
+                    <RecordHeading $tone="blue"><RecordHeadingMain><RecordIcon><ClipboardCheck size={16} /></RecordIcon><strong>派单与现场反馈</strong></RecordHeadingMain><RecordHeadingMeta><span>责任分配与处置回执</span><RecordState>{selectedEvent.assignment ? "已派单" : "待派单"}</RecordState></RecordHeadingMeta></RecordHeading>
+                    {selectedEvent.assignment ? <RecordText><strong>{selectedEvent.assignment.assignee_name || selectedEvent.assignment.department || "待接单"}</strong><span>{selectedEvent.assignment.instruction}</span><p>{selectedEvent.assignment.feedback || "尚未提交现场处置反馈"}</p></RecordText> : <RecordEmpty>该事件尚未派发处理</RecordEmpty>}
+                  </RecordBlock>
+                  <RecordBlock>
+                    <RecordHeading $tone={selectedEvent.advice && !isDeepSeekAdvice(selectedEvent.advice) ? "orange" : "cyan"}><RecordHeadingMain><RecordIcon><Bot size={16} /></RecordIcon><strong>智能处置建议</strong></RecordHeadingMain><RecordHeadingMeta><span>辅助决策与执行要点</span><RecordState>{selectedEvent.advice ? (isDeepSeekAdvice(selectedEvent.advice) ? "AI 已生成" : "规则降级") : "待生成"}</RecordState></RecordHeadingMeta></RecordHeading>
+                    {selectedEvent.advice ? <RecordText><strong>{selectedEvent.advice.model || selectedEvent.advice.source}</strong><p>{selectedEvent.advice.content}</p></RecordText> : <RecordEmpty>确认告警后生成处置建议</RecordEmpty>}
+                  </RecordBlock>
+                  <RecordBlock>
+                    <RecordHeading $tone="green"><RecordHeadingMain><RecordIcon><FileCheck2 size={16} /></RecordIcon><strong>证据与审计</strong></RecordHeadingMain><RecordHeadingMeta><span>原始材料与操作留痕</span><RecordState>{selectedEvent.logs?.length ?? 0} 条记录</RecordState></RecordHeadingMeta></RecordHeading>
+                    <AuditRows><span>原始证据 <strong>{Array.isArray(selectedEvent.evidence) ? selectedEvent.evidence.length : 0} 项</strong></span><span>操作日志 <strong>{selectedEvent.logs?.length ?? 0} 条</strong></span><span>最后更新 <strong>{formatDateTime(selectedEvent.update_time)}</strong></span></AuditRows>
+                  </RecordBlock>
                 </RecordColumn>
               </DetailBody>
             </>
@@ -253,19 +271,23 @@ const MetricItem = styled.div`position:relative;display:flex;align-items:center;
 const FilterBar = styled.div`display:flex;align-items:center;gap:9px;border:1px solid hsl(220 15% 89%);border-radius:6px;padding:4px 10px;background:white;color:hsl(218 10% 48%);select{height:30px;min-width:110px;border:1px solid hsl(220 14% 86%);border-radius:4px;padding:0 9px;background:white;color:hsl(218 16% 28%);font-size:12px;outline:none;}`;
 const SearchBox = styled.label`width:300px;height:30px;display:flex;align-items:center;gap:7px;border:1px solid hsl(220 14% 86%);border-radius:4px;padding:0 9px;input{min-width:0;flex:1;border:0;outline:0;font-size:12px;}`;
 const ResultCount = styled.span`margin-left:auto;font-size:12px;`;
-const Workspace = styled.div`min-height:0;display:grid;grid-template-columns:450px minmax(0,1fr);gap:10px;`;
-const EventPanel = styled.section`min-height:0;display:grid;grid-template-rows:47px 32px minmax(0,1fr);border:1px solid hsl(220 15% 89%);border-radius:6px;background:white;overflow:hidden;`;
-const PanelHeader = styled.div`display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid hsl(220 15% 91%);strong{font-size:14px}span{font-size:11px;color:hsl(218 10% 52%)}`;
-const EventTableHeader = styled.div`display:grid;grid-template-columns:1.5fr 1fr 66px;padding:0 28px 0 13px;align-items:center;background:hsl(216 26% 98%);color:hsl(218 10% 48%);font-size:11px;`;
-const EventList = styled.div`min-height:0;overflow:auto;`;
-const EventRow = styled.button`box-sizing:border-box;width:100%;height:70px;border:0;border-bottom:1px solid hsl(220 15% 92%);display:grid;grid-template-columns:1.5fr 1fr 66px 15px;align-items:center;gap:8px;padding:0 12px;text-align:left;background:${({$active})=>$active?"hsl(216 92% 97%)":"white"};box-shadow:${({$active})=>$active?"inset 3px 0 #2563eb":"none"};color:inherit;&:hover{background:hsl(216 26% 98%)}`;
-const EventMain = styled.div`min-width:0;display:grid;gap:6px;>div{display:flex;align-items:center;gap:7px;min-width:0}strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:hsl(218 10% 50%);font-size:10px}`;
-const EventLocation = styled.div`min-width:0;display:grid;gap:5px;strong,span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}strong{font-size:11px}span{font-size:10px;color:hsl(218 10% 52%)}`;
+const Workspace = styled.div`min-height:0;display:grid;grid-template-columns:470px minmax(0,1fr);gap:10px;`;
+const EventPanel = styled.section`min-height:0;display:grid;grid-template-rows:56px minmax(0,1fr);border:1px solid hsl(220 15% 87%);border-radius:6px;background:white;overflow:hidden;box-shadow:0 2px 10px hsl(218 32% 20% / .04);`;
+const PanelHeader = styled.div`display:flex;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid hsl(220 15% 90%);background:linear-gradient(90deg,hsl(216 72% 97%),white 70%);>div{display:grid;gap:3px}strong{font-size:14px}span{font-size:10px;color:hsl(218 10% 49%)}`;
+const PanelCount = styled.b`min-width:28px;height:24px;display:grid;place-items:center;border:1px solid hsl(216 72% 86%);border-radius:4px;background:white;color:#2563eb;font-size:11px;`;
+const EventList = styled.div`min-height:0;padding:5px 0;overflow:auto;scrollbar-gutter:stable;`;
+const EventRow = styled.button`position:relative;box-sizing:border-box;width:100%;min-height:92px;border:0;border-bottom:1px solid hsl(220 15% 91%);display:grid;align-content:center;gap:7px;padding:10px 35px 10px 15px;text-align:left;background:${({$active})=>$active?"hsl(216 92% 96%)":"white"};box-shadow:${({$active})=>$active?"inset 4px 0 #2563eb":"none"};color:inherit;transition:background .15s ease;&:hover{background:${({$active})=>$active?"hsl(216 92% 95%)":"hsl(216 35% 98%)"}}`;
+const EventRowTop = styled.div`min-width:0;display:flex;align-items:center;justify-content:space-between;gap:10px;>div{min-width:0;display:flex;align-items:center;gap:8px}>div>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:hsl(218 28% 18%)}`;
+const EventDescription = styled.div`overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:hsl(218 13% 40%);font-size:11px;line-height:1.4;`;
+const EventMeta = styled.div`min-width:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.85fr) auto;gap:10px;color:hsl(218 10% 48%);font-size:10px;span,time{min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}time{justify-self:end}`;
+const EventArrow = styled.span`position:absolute;right:12px;top:50%;transform:translateY(-50%);display:grid;place-items:center;color:hsl(218 10% 56%);`;
 const LevelBadge = styled.span`width:fit-content;display:inline-flex;align-items:center;border:1px solid ${({$level})=>$level==="重大"||$level==="严重"?"hsl(0 80% 88%)":"hsl(34 90% 84%)"};border-radius:4px;padding:2px 6px;color:${({$level})=>$level==="重大"||$level==="严重"?"hsl(0 72% 50%)":"hsl(32 88% 45%)"};background:${({$level})=>$level==="重大"||$level==="严重"?"hsl(0 86% 97%)":"hsl(38 100% 96%)"};font-size:10px;font-weight:700;white-space:nowrap;`;
 const StatusBadge = styled.span`width:fit-content;display:inline-flex;border-radius:4px;padding:3px 7px;color:${({$status})=>CLOSED_STATUSES.has($status)?"hsl(157 72% 35%)":"hsl(216 82% 50%)"};background:${({$status})=>CLOSED_STATUSES.has($status)?"hsl(157 60% 95%)":"hsl(216 90% 96%)"};font-size:10px;font-weight:700;white-space:nowrap;`;
 const EmptyState = styled.div`height:100%;display:grid;place-items:center;color:hsl(218 10% 52%);font-size:13px;`;
 const DetailPanel = styled.section`min-width:0;min-height:0;display:grid;grid-template-rows:auto 58px minmax(0,1fr);border:1px solid hsl(220 15% 89%);border-radius:6px;background:white;overflow:hidden;`;
-const DetailHeader = styled.div`display:flex;align-items:center;justify-content:space-between;gap:20px;padding:13px 16px;border-bottom:1px solid hsl(220 15% 91%);>div:first-child{min-width:0}span{font-size:10px;color:hsl(218 10% 52%)}h2{display:inline;margin:0 10px 0 0;font-size:16px}p{display:inline;color:hsl(218 10% 46%);font-size:11px}`;
+const DetailHeader = styled.div`display:flex;align-items:center;justify-content:space-between;gap:20px;padding:11px 16px;border-bottom:1px solid hsl(220 15% 91%);>div:first-child{min-width:0;display:grid;gap:4px}p{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:hsl(218 10% 46%);font-size:11px}`;
+const DetailTitleLine = styled.div`min-width:0;display:flex;align-items:baseline;gap:10px;h2{margin:0;font-size:16px;white-space:nowrap}`;
+const EventId = styled.span`overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:hsl(218 10% 50%);font-family:var(--font-data);font-size:10px;`;
 const HeaderActions = styled.div`display:flex;align-items:center;gap:8px;flex-shrink:0;`;
 const AlarmLink = styled(Link)`height:28px;display:flex;align-items:center;gap:3px;border-radius:4px;padding:0 9px;color:white;background:#2563eb;text-decoration:none;font-size:11px;font-weight:600;`;
 const MetaStrip = styled.div`display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid hsl(220 15% 91%);background:hsl(216 26% 99%);>div{display:grid;align-content:center;gap:4px;padding:0 15px;border-right:1px solid hsl(220 15% 91%)}span{font-size:10px;color:hsl(218 10% 52%)}strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}`;
@@ -283,8 +305,12 @@ const StepIcon = styled.div`position:relative;z-index:1;width:25px;height:25px;b
 const StepContent = styled.div`min-width:0;padding-top:2px;>div{display:flex;align-items:center;justify-content:space-between;gap:8px}strong{font-size:11px}p{margin:4px 0 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:hsl(218 10% 45%);font-size:10px}time{font-size:9px;color:hsl(218 10% 58%)}`;
 const StepSource = styled.span`overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px!important;color:hsl(218 10% 55%)!important;`;
 const RecordColumn = styled.aside`min-height:0;border-left:1px solid hsl(220 15% 91%);padding:12px;display:grid;align-content:start;gap:10px;overflow:auto;background:hsl(216 26% 99%);`;
-const RecordBlock = styled.section`border:1px solid hsl(220 15% 89%);border-radius:5px;padding:11px;background:white;`;
-const RecordTitle = styled.div`display:flex;align-items:center;gap:7px;margin-bottom:9px;color:hsl(218 20% 24%);font-size:11px;font-weight:700;`;
+const RecordBlock = styled.section`overflow:hidden;border:1px solid hsl(220 15% 88%);border-radius:6px;padding:0 11px 11px;background:white;box-shadow:0 2px 8px hsl(218 30% 25% / .035);`;
+const RecordHeading = styled.div`position:relative;display:grid;gap:7px;margin:0 -11px 10px;padding:9px 11px 8px 13px;border-bottom:1px solid hsl(220 15% 91%);background:${({$tone})=>({orange:"hsl(38 100% 97%)",green:"hsl(157 56% 97%)",cyan:"hsl(190 70% 97%)"}[$tone]||"hsl(216 82% 97%)")};&:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:${({$tone})=>({orange:"#f59e0b",green:"#10b981",cyan:"#0891b2"}[$tone]||"#2563eb")};}`;
+const RecordHeadingMain = styled.div`min-width:0;display:flex;align-items:center;gap:8px;strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:hsl(218 24% 20%);font-size:12px}`;
+const RecordHeadingMeta = styled.div`min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-left:36px;>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:hsl(218 10% 49%);font-size:9px}`;
+const RecordIcon = styled.span`width:28px;height:28px;display:grid;place-items:center;border:1px solid hsl(220 15% 88%);border-radius:5px;background:white;color:hsl(216 80% 51%);`;
+const RecordState = styled.b`max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:4px;padding:3px 6px;background:white;color:hsl(218 13% 40%);font-size:9px;font-weight:700;`;
 const RecordText = styled.div`display:grid;gap:5px;strong{font-size:11px}span{color:hsl(218 10% 43%);font-size:10px}p{margin:0;color:hsl(218 10% 48%);font-size:10px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;}`;
 const RecordEmpty = styled.div`padding:8px 0;color:hsl(218 10% 55%);font-size:10px;`;
 const AuditRows = styled.div`display:grid;gap:7px;span{display:flex;justify-content:space-between;color:hsl(218 10% 48%);font-size:10px}strong{color:hsl(218 18% 28%);font-weight:600}`;

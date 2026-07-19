@@ -63,6 +63,10 @@ const ACTION_LABELS = {
   close: "关闭事件",
 };
 const PAGE_SIZE = 10;
+
+function isDeepSeekAdvice(advice) {
+  return advice?.source === "deepseek" && advice?.generation_status !== "fallback";
+}
 const ALL_COLUMNS = [
   { key: "time", label: "发生时间" },
   { key: "type", label: "告警类型" },
@@ -947,11 +951,28 @@ function AlarmCenter() {
                       </div>
                     </AdvicePending>
                   ) : (
-                    <Advice>
-                      {detail.ai_advice?.edited_content ||
-                        detail.ai_advice?.content ||
-                        "处置建议生成中，请稍后刷新查看。"}
-                    </Advice>
+                    <AdviceBox $fallback={Boolean(detail.ai_advice) && !isDeepSeekAdvice(detail.ai_advice)}>
+                      <AdviceMeta>
+                        <strong>
+                          {!detail.ai_advice
+                            ? "智能建议生成中"
+                            : isDeepSeekAdvice(detail.ai_advice)
+                              ? "DeepSeek 已生成"
+                              : "规则建议（AI 未参与生成）"}
+                        </strong>
+                        {detail.ai_advice && (
+                          <span>
+                            {detail.ai_advice.model || detail.ai_advice.source || "规则引擎"}
+                            {detail.ai_advice.latency_ms != null ? ` · ${detail.ai_advice.latency_ms} ms` : ""}
+                          </span>
+                        )}
+                      </AdviceMeta>
+                      <Advice>
+                        {detail.ai_advice?.edited_content ||
+                          detail.ai_advice?.content ||
+                          "确认已完成，正在生成处置建议，请稍后刷新查看。"}
+                      </Advice>
+                    </AdviceBox>
                   )}
                 </DetailSection>
                 {detail.assignment && (
@@ -1556,11 +1577,26 @@ const DetailSection = styled.section`
     line-height: 1.6;
   }
 `;
+const AdviceBox = styled.div`
+  overflow: hidden;
+  border: 1px solid ${({ $fallback }) => ($fallback ? "#fed7aa" : "#bfdbfe")};
+  border-radius: 5px;
+  background: ${({ $fallback }) => ($fallback ? "#fffaf2" : "#f8fbff")};
+`;
+const AdviceMeta = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid #e8edf5;
+  strong { color: #24344d; font-size: 11px; }
+  span { color: #7a879b; font-size: 9px; white-space: nowrap; }
+`;
 const Advice = styled.div`
   padding: 9px 10px;
-  border-left: 3px solid #1677ff;
   color: #536078;
-  background: #f4f8ff;
+  background: transparent;
   line-height: 1.6;
   white-space: pre-line;
 `;
