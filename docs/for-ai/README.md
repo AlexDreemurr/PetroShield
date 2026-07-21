@@ -400,7 +400,7 @@ Windows 一键入口为 `database/run-all-seeds.cmd`，实现位于 `database/ru
 视频AI页面已从占位页升级为可运行的一期链路：
 
 1. `GET /api/v1/video-ai/overview` 返回摄像头、识别事件、识别统计、传感器异常预测和融合摘要。
-2. `POST /api/v1/video-ai/analyze` 接收 JPG、PNG、WebP、MP4、MOV、WebM，通过阿里云百炼兼容接口调用通义千问视觉模型。
+2. `POST /api/v1/video-ai/analyze` 接收 JPG、PNG、WebP、MP4、MOV、WebM，快速返回任务编号；后台通过阿里云百炼兼容接口调用通义千问视觉模型，前端轮询 `GET /api/v1/video-ai/jobs/{job_id}` 获取结果。
 3. 模型异常结果写入 `video_ai_event`，状态默认为 `suspected`，不会自动成为正式告警。
 4. 管理员人工复核后调用 `POST /api/v1/video-ai/events/{event_id}/promote`，才会写入 `alarm` 并跳转告警中心。
 5. 每次模型调用均写入 `video_ai_inference_job`，包括模型、延迟、状态、响应或错误，便于审计与排障。

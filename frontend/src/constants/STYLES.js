@@ -50,6 +50,14 @@ export const FONT_SIZES = {
   dashboardHeatmapLabel: rem(10),
   dashboardCheckMark: "8px",
 
+  videoAiToolbar: rem(10),
+  videoAiPanelTitle: rem(12),
+  videoAiBody: rem(11),
+  videoAiMeta: rem(10),
+  videoAiBadge: rem(10),
+  videoAiFusionLabel: rem(10),
+  videoAiFusionValue: rem(11),
+
   peoplePageTitle: rem(16),
   peoplePageSubtitle: rem(12),
   peopleEmptyText: rem(12),

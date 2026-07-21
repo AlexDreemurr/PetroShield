@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 
 from app.api.routes.risk_control import connect_database, decode_json
 from app.security import require_permission
-from app.services.qwen_video_analyzer import VideoAnalysisError, analyze_safety_media
+from app.services.qwen_video_analyzer import analyze_safety_media
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_VIDEO_BYTES = 20 * 1024 * 1024
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -44,6 +46,77 @@ from public.video_ai_event event
 left join public.video_camera_channel camera on camera.id = event.camera_id
 left join public.area area on area.id = camera.area_id
 """
+
+
+async def mark_job_failed(job_id: str, error: Exception) -> None:
+    try:
+        connection = await connect_database()
+        try:
+            await connection.execute(
+                """update public.video_ai_inference_job
+                   set status='failed', error_message=$2, completed_at=now()
+                   where id=$1""",
+                job_id,
+                f"{type(error).__name__}: {error}"[:1000],
+            )
+        finally:
+            await connection.close()
+    except Exception:
+        # The original task error remains visible in application logs even if the
+        # database is temporarily unavailable while recording the failure.
+        return
+
+
+async def run_analysis_job(
+    *, job_id: str, camera_id: str | None, content: bytes, mime_type: str,
+    media_type: Literal["image", "video"], filename: str | None, context: dict,
+) -> None:
+    try:
+        result = await analyze_safety_media(
+            content=content, mime_type=mime_type, media_type=media_type, context=context,
+        )
+        payload = result.payload
+        connection = await connect_database()
+        try:
+            async with connection.transaction():
+                await connection.execute(
+                    """update public.video_ai_inference_job
+                       set model=$2, status='completed', response_payload=$3::jsonb,
+                           latency_ms=$4, completed_at=now(),
+                           request_metadata=request_metadata || $5::jsonb
+                       where id=$1""",
+                    job_id, result.model, json.dumps(payload.model_dump()), result.latency_ms,
+                    json.dumps({
+                        "provider_request_id": result.request_id,
+                        "usage": result.usage,
+                        "prompt_version": result.prompt_version,
+                    }),
+                )
+                if payload.abnormal:
+                    await connection.execute(
+                        """insert into public.video_ai_event
+                           (camera_id, inference_job_id, event_type, category, risk_level,
+                            confidence, summary, objects, evidence, fusion_data)
+                           values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb)""",
+                        camera_id, job_id, payload.event_type, payload.category, payload.risk_level,
+                        payload.confidence, payload.summary,
+                        json.dumps([item.model_dump() for item in payload.objects]),
+                        json.dumps({
+                            "media_name": filename, "mime_type": mime_type,
+                            "notes": payload.evidence_notes,
+                            "suggested_actions": payload.suggested_actions,
+                            "provider": result.provider, "model": result.model,
+                        }),
+                        json.dumps({
+                            "visual_confidence": payload.confidence,
+                            "fusion_confidence": payload.confidence,
+                        }),
+                    )
+        finally:
+            await connection.close()
+    except Exception as exc:
+        logger.exception("Video AI analysis job %s failed", job_id)
+        await mark_job_failed(job_id, exc)
 
 
 @router.get("/overview")
@@ -122,8 +195,9 @@ async def get_video_ai_overview():
     }
 
 
-@router.post("/analyze", dependencies=[Depends(require_permission("video.analyze"))])
+@router.post("/analyze", status_code=202, dependencies=[Depends(require_permission("video.analyze"))])
 async def analyze_media(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     camera_id: str | None = Form(default=None),
 ):
@@ -166,44 +240,36 @@ async def analyze_media(
         "area": None if not camera else {"id": camera["area_id"], "name": camera["area_name"]},
         "media_name": file.filename,
     }
-    try:
-        result = await analyze_safety_media(content=content, mime_type=mime_type, media_type=media_type, context=context)
-    except VideoAnalysisError as exc:
-        connection = await connect_database()
-        try:
-            await connection.execute(
-                """update public.video_ai_inference_job set status='failed', error_message=$2,
-                   completed_at=now() where id=$1""",
-                job_id, str(exc)[:1000],
-            )
-        finally:
-            await connection.close()
-        raise HTTPException(status_code=503, detail=f"视觉识别服务调用失败：{exc}") from exc
+    background_tasks.add_task(
+        run_analysis_job,
+        job_id=job_id, camera_id=camera_id, content=content, mime_type=mime_type,
+        media_type=media_type, filename=file.filename, context=context,
+    )
+    return {"job_id": job_id, "status": "processing"}
 
-    payload = result.payload
+
+@router.get("/jobs/{job_id}")
+async def get_analysis_job(job_id: str):
     connection = await connect_database()
     try:
-        async with connection.transaction():
-            await connection.execute(
-                """update public.video_ai_inference_job set model=$2, status='completed', response_payload=$3::jsonb,
-                   latency_ms=$4, completed_at=now(), request_metadata=request_metadata || $5::jsonb where id=$1""",
-                job_id, result.model, json.dumps(payload.model_dump()), result.latency_ms,
-                json.dumps({"provider_request_id": result.request_id, "usage": result.usage, "prompt_version": result.prompt_version}),
-            )
-            event_id = None
-            if payload.abnormal:
-                event_id = await connection.fetchval(
-                    """insert into public.video_ai_event
-                       (camera_id, inference_job_id, event_type, category, risk_level, confidence, summary, objects, evidence, fusion_data)
-                       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb) returning id""",
-                    camera_id, job_id, payload.event_type, payload.category, payload.risk_level,
-                    payload.confidence, payload.summary, json.dumps([item.model_dump() for item in payload.objects]),
-                    json.dumps({"media_name": file.filename, "mime_type": mime_type, "notes": payload.evidence_notes, "suggested_actions": payload.suggested_actions, "provider": result.provider, "model": result.model}),
-                    json.dumps({"visual_confidence": payload.confidence, "fusion_confidence": payload.confidence}),
-                )
-        return {"job_id": job_id, "event_id": event_id, "result": payload.model_dump(), "latency_ms": result.latency_ms, "model": result.model}
+        row = await connection.fetchrow(
+            """select job.*, event.id as event_id
+               from public.video_ai_inference_job job
+               left join public.video_ai_event event on event.inference_job_id=job.id
+               where job.id=$1""",
+            job_id,
+        )
     finally:
         await connection.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="视频AI识别任务不存在")
+    return {
+        "job_id": row["id"], "status": row["status"], "event_id": row["event_id"],
+        "result": decode_json(row["response_payload"], None), "model": row["model"],
+        "latency_ms": row["latency_ms"], "error": row["error_message"],
+        "created_at": row["created_at"].isoformat(),
+        "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+    }
 
 
 @router.post("/events/{event_id}/promote", dependencies=[Depends(require_permission("video.promote"))])

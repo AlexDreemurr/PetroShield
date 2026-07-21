@@ -31,6 +31,28 @@ function formatTime(value, withDate = false) {
   }).format(date).replaceAll("/", "-");
 }
 
+const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+async function waitForAnalysisJob(jobId, onProgress) {
+  let transientFailures = 0;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await wait(attempt === 0 ? 800 : 2000);
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/video-ai/jobs/${encodeURIComponent(jobId)}`);
+      if (!response.ok) throw new Error(await readApiError(response, "识别任务状态查询失败"));
+      const payload = await response.json();
+      transientFailures = 0;
+      if (payload.status === "completed") return payload;
+      if (payload.status === "failed") throw new Error(payload.error || "视觉模型分析失败");
+      onProgress?.(`模型分析中 ${Math.min(99, Math.round(((attempt + 1) / 60) * 100))}%`);
+    } catch (error) {
+      if (!(error instanceof TypeError) || transientFailures >= 2) throw error;
+      transientFailures += 1;
+    }
+  }
+  throw new Error("识别任务等待超时，请稍后刷新页面查看结果");
+}
+
 function VideoAI() {
   const cached = getCachedJson(PAGE_DATA_URLS.videoAI);
   const [data, setData] = useState(cached);
@@ -159,6 +181,7 @@ function AnalyzeDialog({ cameras, configured, onClose, onComplete }) {
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState("模型分析中");
   useEffect(() => {
     if (!file) { setPreview(""); return undefined; }
     const url = URL.createObjectURL(file); setPreview(url);
@@ -166,13 +189,20 @@ function AnalyzeDialog({ cameras, configured, onClose, onComplete }) {
   }, [file]);
   async function submit() {
     if (!file) { setError("请先选择图片或视频"); return; }
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setProgress("正在唤醒后端");
     try {
+      const healthResponse = await apiFetch(`${API_BASE_URL}/health`);
+      if (!healthResponse.ok) throw new Error("后端服务暂时不可用");
+      setProgress("正在上传媒体");
       const form = new FormData(); form.append("file", file); if (cameraId) form.append("camera_id", cameraId);
       const response = await apiFetch(`${API_BASE_URL}/video-ai/analyze`, { method: "POST", body: form });
       if (!response.ok) throw new Error(await readApiError(response, "识别失败"));
-      onComplete(await response.json());
-    } catch (nextError) { setError(nextError.message); } finally { setBusy(false); }
+      const job = await response.json();
+      setProgress("模型分析中 1%");
+      onComplete(await waitForAnalysisJob(job.job_id, setProgress));
+    } catch (nextError) {
+      setError(nextError instanceof TypeError ? "无法连接视频AI后端，请确认网络正常并稍后重试" : nextError.message);
+    } finally { setBusy(false); }
   }
   return <DialogBackdrop onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
     <Dialog><DialogHeader><div><Sparkles size={17} /><strong>上传媒体进行安全识别</strong></div><IconButton type="button" onClick={onClose} disabled={busy}><X size={18} /></IconButton></DialogHeader>
@@ -185,26 +215,26 @@ function AnalyzeDialog({ cameras, configured, onClose, onComplete }) {
         <ModelNote><FileVideo2 size={16} /><div><strong>识别结果先进入“疑似事件”</strong><span>模型不会直接创建正式告警，需人工复核后点击“转为告警”。</span></div></ModelNote>
         {error ? <DialogError>{error}</DialogError> : null}
       </DialogBody>
-      <DialogFooter><SecondaryButton type="button" onClick={onClose} disabled={busy}>取消</SecondaryButton><PrimaryButton type="button" onClick={submit} disabled={busy || !file}>{busy ? <><LoaderCircle className="spin" size={15} />模型分析中</> : <><Upload size={15} />开始识别</>}</PrimaryButton></DialogFooter>
+      <DialogFooter><SecondaryButton type="button" onClick={onClose} disabled={busy}>取消</SecondaryButton><PrimaryButton type="button" onClick={submit} disabled={busy || !file}>{busy ? <><LoaderCircle className="spin" size={15} />{progress}</> : <><Upload size={15} />开始识别</>}</PrimaryButton></DialogFooter>
     </Dialog>
   </DialogBackdrop>;
 }
 
-const Page = styled.div`box-sizing:border-box;height:100%;min-height:0;display:grid;grid-template-rows:auto 42px minmax(0,1fr) 150px;gap:10px;padding:${BUSINESS_PAGE_LAYOUT.padding};overflow:hidden;background:hsl(216 26% 97%);color:hsl(218 24% 20%);button,select{font:inherit}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`;
+const Page = styled.div`box-sizing:border-box;height:100%;min-height:0;display:grid;grid-template-rows:auto 42px minmax(0,1fr) 150px;gap:10px;padding:${BUSINESS_PAGE_LAYOUT.padding};overflow:hidden;background:hsl(216 26% 97%);color:hsl(218 24% 20%);button,select{font-family:inherit}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`;
 const PageHeader = styled.header`display:flex;align-items:center;justify-content:space-between;gap:16px;`;
 const PageTitle = styled.h1`margin:0;color:${COLORS.gray10};font-size:${FONT_SIZES.peoplePageTitle};line-height:${BUSINESS_PAGE_LAYOUT.titleLineHeight};`;
 const PageSubtitle = styled.p`margin:3px 0 0;color:hsl(218 10% 48%);font-size:11px;`;
 const HeaderStatus = styled.span`display:flex;align-items:center;gap:6px;color:${p => p.$ok ? "hsl(157 54% 35%)" : "hsl(32 82% 42%)"};font-size:10px;span{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px ${p => p.$ok ? "hsl(157 55% 92%)" : "hsl(38 90% 92%)"}}`;
 const Toolbar = styled.div`display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid hsl(218 18% 88%);border-radius:6px;background:white;`;
-const FieldLabel = styled.span`color:hsl(218 12% 42%);font-size:10px;`;
-const Select = styled.select`height:28px;min-width:120px;padding:0 28px 0 9px;border:1px solid hsl(218 18% 84%);border-radius:5px;color:hsl(218 20% 26%);background:white;font-size:11px;outline:none;`;
+const FieldLabel = styled.span`color:hsl(218 12% 42%);font-size:${FONT_SIZES.videoAiToolbar};`;
+const Select = styled.select`height:28px;min-width:120px;padding:0 28px 0 9px;border:1px solid hsl(218 18% 84%);border-radius:5px;color:hsl(218 20% 26%);background:white;font-size:${FONT_SIZES.videoAiToolbar};outline:none;`;
 const Divider = styled.i`width:1px;height:18px;margin:0 4px;background:hsl(218 18% 90%);`;
 const ToolbarSpacer = styled.span`flex:1;`;
-const PrimaryButton = styled.button`height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 11px;border:0;border-radius:5px;color:white;background:hsl(220 90% 50%);font-size:11px;cursor:pointer;&:hover{background:hsl(220 90% 44%)}&:disabled{opacity:.55;cursor:not-allowed}`;
-const SecondaryButton = styled.button`height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 11px;border:1px solid hsl(218 18% 84%);border-radius:5px;color:hsl(218 18% 32%);background:white;font-size:11px;cursor:pointer;&:hover{border-color:hsl(220 72% 70%);color:hsl(220 80% 46%)}&:disabled{opacity:.55}`;
+const PrimaryButton = styled.button`height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 11px;border:0;border-radius:5px;color:white;background:hsl(220 90% 50%);font-size:${FONT_SIZES.videoAiToolbar};cursor:pointer;&:hover{background:hsl(220 90% 44%)}&:disabled{opacity:.55;cursor:not-allowed}`;
+const SecondaryButton = styled.button`height:30px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 11px;border:1px solid hsl(218 18% 84%);border-radius:5px;color:hsl(218 18% 32%);background:white;font-size:${FONT_SIZES.videoAiToolbar};cursor:pointer;&:hover{border-color:hsl(220 72% 70%);color:hsl(220 80% 46%)}&:disabled{opacity:.55}`;
 const MainGrid = styled.main`min-height:0;display:grid;grid-template-columns:minmax(0,3fr) minmax(330px,1fr);gap:10px;`;
 const CameraPanel = styled.section`min-width:0;min-height:0;display:grid;grid-template-rows:38px minmax(0,1fr);border:1px solid hsl(218 18% 87%);border-radius:6px;background:white;overflow:hidden;`;
-const PanelHeader = styled.header`display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 11px;border-bottom:1px solid hsl(218 18% 90%);div{display:flex;align-items:center;gap:7px}strong{font-size:12px}small,>span{color:hsl(218 10% 50%);font-size:9px;font-weight:400}`;
+const PanelHeader = styled.header`display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 11px;border-bottom:1px solid hsl(218 18% 90%);div{display:flex;align-items:center;gap:7px}strong{font-size:${FONT_SIZES.videoAiPanelTitle}}small,>span{color:hsl(218 10% 50%);font-size:${FONT_SIZES.videoAiMeta};font-weight:400}`;
 const CameraGrid = styled.div`position:relative;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:6px;padding:6px;background:hsl(218 20% 94%);`;
 const StateBox = styled.div`position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;gap:8px;color:hsl(218 10% 48%);background:white;font-size:11px;`;
 const CameraTile = styled.button`position:relative;min-width:0;min-height:0;padding:0;border:${p => p.$selected ? "2px solid hsl(220 92% 54%)" : "1px solid hsl(218 20% 78%)"};border-radius:4px;overflow:hidden;background:#182231;cursor:pointer;box-shadow:${p => p.$selected ? "0 0 0 2px hsl(220 90% 88%)" : "none"};text-align:left;`;
@@ -219,20 +249,20 @@ const EventPanel = styled.section`min-height:0;display:grid;grid-template-rows:3
 const EventList = styled.div`min-height:0;overflow:auto;padding:4px 6px;`;
 const EventRow = styled.button`width:100%;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:7px;padding:6px;border:0;border-bottom:1px solid hsl(218 18% 92%);border-radius:4px;color:hsl(218 20% 24%);background:${p => p.$active ? "hsl(220 90% 96%)" : "transparent"};text-align:left;cursor:pointer;&:hover{background:hsl(216 34% 96%)}`;
 const EventIcon = styled.span`width:32px;height:25px;display:grid;place-items:center;border-radius:4px;color:${p => p.$risk};background:${p => `${p.$risk}14`};`;
-const EventCopy = styled.span`min-width:0;strong,span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}strong{font-size:10px}span{margin-top:3px;color:hsl(218 10% 48%);font-size:8px}`;
-const EventMeta = styled.span`display:grid;justify-items:end;gap:4px;time{color:hsl(218 10% 48%);font-size:8px}`;
-const RiskBadge = styled.b`width:fit-content;padding:2px 5px;border-radius:3px;color:${p => p.$color};background:${p => `${p.$color}12`};font-size:8px;`;
+const EventCopy = styled.span`min-width:0;strong,span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}strong{font-size:${FONT_SIZES.videoAiBody}}span{margin-top:3px;color:hsl(218 10% 48%);font-size:${FONT_SIZES.videoAiMeta}}`;
+const EventMeta = styled.span`display:grid;justify-items:end;gap:4px;time{color:hsl(218 10% 48%);font-size:${FONT_SIZES.videoAiMeta}}`;
+const RiskBadge = styled.b`width:fit-content;padding:2px 5px;border-radius:3px;color:${p => p.$color};background:${p => `${p.$color}12`};font-size:${FONT_SIZES.videoAiBadge};`;
 const PredictionPanel = styled(EventPanel)``;
 const PredictionList = styled.div`min-height:0;overflow:auto;padding:4px 8px;`;
-const PredictionRow = styled.div`display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:5px;padding:6px 2px;border-bottom:1px solid hsl(218 18% 92%);color:hsl(220 80% 52%);div{min-width:0}strong,span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}strong{color:hsl(218 20% 28%);font-size:9px}span{margin-top:3px;color:hsl(218 10% 52%);font-size:8px}`;
-const Score = styled.b`color:${p => p.$color};font-size:10px;`;
+const PredictionRow = styled.div`display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:7px;padding:7px 2px;border-bottom:1px solid hsl(218 18% 92%);color:hsl(220 80% 52%);div{min-width:0}strong,span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}strong{color:hsl(218 20% 28%);font-size:${FONT_SIZES.videoAiBody}}span{margin-top:3px;color:hsl(218 10% 52%);font-size:${FONT_SIZES.videoAiMeta}}`;
+const Score = styled.b`color:${p => p.$color};font-size:${FONT_SIZES.videoAiBody};`;
 const FusionPanel = styled.section`min-width:0;min-height:0;display:grid;grid-template-rows:34px minmax(0,1fr);border:1px solid hsl(218 18% 87%);border-radius:6px;background:white;overflow:hidden;`;
 const FusionHeader = styled(PanelHeader)`border-bottom:1px solid hsl(218 18% 90%);`;
 const FusionBody = styled.div`min-width:0;display:grid;grid-template-columns:minmax(150px,.75fr) 28px minmax(150px,.75fr) 28px minmax(190px,1fr) 28px minmax(280px,1.35fr);align-items:stretch;padding:7px;`;
-const SourceBlock = styled.div`min-width:0;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:8px;padding:5px 8px;border:1px solid hsl(218 18% 89%);border-radius:5px;div{min-width:0}label,strong,span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}label{color:hsl(218 10% 50%);font-size:8px}strong{margin:3px 0;font-size:10px}span{color:hsl(218 10% 48%);font-size:8px}`;
+const SourceBlock = styled.div`min-width:0;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:8px;padding:5px 8px;border:1px solid hsl(218 18% 89%);border-radius:5px;>div{min-width:0}>div>label,>div>strong,>div>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}>div>label{color:hsl(218 10% 50%);font-size:${FONT_SIZES.videoAiFusionLabel}}>div>strong{margin:3px 0;font-size:${FONT_SIZES.videoAiFusionValue}}>div>span{color:hsl(218 10% 48%);font-size:${FONT_SIZES.videoAiMeta}}`;
 const SourceIcon = styled.span`width:32px;height:32px;display:grid;place-items:center;border-radius:5px;color:${p => p.$green ? "#059669" : p.$amber ? "#d97706" : "#2563eb"};background:${p => p.$green ? "#ecfdf5" : p.$amber ? "#fffbeb" : "#eff6ff"};`;
 const FlowArrow = styled.div`display:grid;place-items:center;color:hsl(220 88% 60%);`;
-const FusionResult = styled.div`min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:6px 9px;border:1px solid ${p => p.$color};border-radius:5px;background:${p => `${p.$color}0d`};div{min-width:0}label,strong,span{display:block}label{color:${p => p.$color};font-size:8px}strong{margin:3px 0;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}span{color:hsl(218 10% 46%);font-size:8px}`;
+const FusionResult = styled.div`min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:6px 9px;border:1px solid ${p => p.$color};border-radius:5px;background:${p => `${p.$color}0d`};>div{min-width:0}>div>label,>div>strong,>div>span{display:block}>div>label{color:${p => p.$color};font-size:${FONT_SIZES.videoAiFusionLabel}}>div>strong{margin:3px 0;font-size:${FONT_SIZES.videoAiFusionValue};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}>div>span{color:hsl(218 10% 46%);font-size:${FONT_SIZES.videoAiMeta}}`;
 const ResultActions = styled.span`display:flex;align-items:center;`;
 const EmptyFusion = styled.div`display:grid;place-items:center;color:hsl(218 10% 50%);font-size:10px;`;
 const DialogBackdrop = styled.div`position:fixed;inset:0;z-index:1200;display:grid;place-items:center;background:rgba(8,15,28,.56);backdrop-filter:blur(2px);`;

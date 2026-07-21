@@ -280,11 +280,19 @@ OPERATION_DOCS: dict[tuple[str, str], dict[str, Any]] = {
     ),
     ("post", "/api/v1/video-ai/analyze"): _doc(
         "上传媒体并执行安全识别",
-        "使用 `multipart/form-data` 上传一个媒体文件。`file` 支持 JPG、PNG、WebP（最大10MB）及 MP4、MOV、WebM（最大20MB）；`camera_id` 可选，用于关联摄像头和风险区域。每次调用都会记录推理审计任务；仅当模型判断存在明确异常时创建疑似事件，不会直接创建正式告警。",
+        "使用 `multipart/form-data` 上传一个媒体文件。`file` 支持 JPG、PNG、WebP（最大10MB）及 MP4、MOV、WebM（最大20MB）；`camera_id` 可选，用于关联摄像头和风险区域。接口快速返回任务编号，模型在后台执行，客户端通过任务状态接口轮询结果；仅当模型判断存在明确异常时创建疑似事件，不会直接创建正式告警。",
         permission="video.analyze",
         parameters={},
-        response_example={"job_id": "job-example", "event_id": "event-example", "result": {"abnormal": True, "event_type": "区域入侵", "category": "person", "risk_level": "严重", "confidence": 0.91, "summary": "人员进入限制区域", "objects": [{"label": "person", "confidence": 0.94, "bbox": [0.25, 0.18, 0.62, 0.88]}], "evidence_notes": ["人员位于警戒线内"], "suggested_actions": ["通知现场安全员复核"]}, "latency_ms": 3840, "model": "qwen3-vl-flash"},
+        response_status="202", response_description="媒体已接收，后台识别任务已创建",
+        response_example={"job_id": "job-example", "status": "processing"},
         errors=(401, 403, 413, 422, 503),
+    ),
+    ("get", "/api/v1/video-ai/jobs/{job_id}"): _doc(
+        "查询视频AI识别任务",
+        "查询后台推理任务状态。`processing` 表示仍在分析；`completed` 返回结构化识别结果及可选疑似事件编号；`failed` 返回经过截断的错误原因。",
+        permission="video.view", parameters={"job_id": "上传接口返回的识别任务编号。"},
+        response_example={"job_id": "job-example", "status": "completed", "event_id": "event-example", "result": {"abnormal": True, "event_type": "区域入侵", "category": "person", "risk_level": "严重", "confidence": 0.91, "summary": "人员进入限制区域", "objects": [], "evidence_notes": ["人员位于警戒线内"], "suggested_actions": ["通知现场安全员复核"]}, "model": "qwen3-vl-flash", "latency_ms": 3840, "error": None, "created_at": "2026-07-21T18:30:00+08:00", "completed_at": "2026-07-21T18:30:04+08:00"},
+        errors=(401, 403, 404, 503),
     ),
     ("post", "/api/v1/video-ai/events/{event_id}/promote"): _doc(
         "将疑似事件转为正式告警",
