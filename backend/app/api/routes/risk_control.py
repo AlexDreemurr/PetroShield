@@ -1,9 +1,11 @@
 import json
+from io import BytesIO
 from typing import Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, ValidationError
 
 from app.api.routes.dashboard import (
     create_ssl_context,
@@ -11,6 +13,12 @@ from app.api.routes.dashboard import (
     should_use_ssl,
 )
 from app.security import require_permission
+from app.services.area_excel import (
+    MAX_FILE_SIZE,
+    AreaExcelError,
+    build_area_template,
+    parse_area_workbook,
+)
 
 router = APIRouter()
 
@@ -234,6 +242,26 @@ async def fetch_area(connection: asyncpg.Connection, area_id: str) -> dict:
     return build_area_item(row)
 
 
+async def insert_area(connection: asyncpg.Connection, payload: AreaWrite) -> str:
+    rule_config = build_rule_config(payload)
+    return await connection.fetchval(
+        """
+        insert into public.area (
+          name, type, polygon, center, radius, rule_config, risk_level, enable
+        ) values ($1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb, $7, $8)
+        returning id;
+        """,
+        payload.name,
+        AREA_TYPE_TO_DB[payload.type],
+        json.dumps([point.model_dump() for point in payload.polygon]),
+        json.dumps(payload.center.model_dump()) if payload.center else None,
+        payload.radius if payload.shape == "circle" else None,
+        json.dumps(rule_config),
+        RISK_LEVEL_TO_DB[payload.risk_level],
+        payload.enabled,
+    )
+
+
 @router.get("/overview")
 async def get_risk_control_overview():
     try:
@@ -275,26 +303,10 @@ async def get_risk_control_overview():
 @router.post("/areas", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("risk.create"))])
 async def create_area(payload: AreaWrite):
     validate_geometry(payload)
-    rule_config = build_rule_config(payload)
 
     try:
         connection = await connect_database()
-        area_id = await connection.fetchval(
-            """
-            insert into public.area (
-              name, type, polygon, center, radius, rule_config, risk_level, enable
-            ) values ($1, $2, $3::jsonb, $4::jsonb, $5, $6::jsonb, $7, $8)
-            returning id;
-            """,
-            payload.name,
-            AREA_TYPE_TO_DB[payload.type],
-            json.dumps([point.model_dump() for point in payload.polygon]),
-            json.dumps(payload.center.model_dump()) if payload.center else None,
-            payload.radius if payload.shape == "circle" else None,
-            json.dumps(rule_config),
-            RISK_LEVEL_TO_DB[payload.risk_level],
-            payload.enabled,
-        )
+        area_id = await insert_area(connection, payload)
         return await fetch_area(connection, area_id)
     except HTTPException:
         raise
@@ -307,6 +319,82 @@ async def create_area(payload: AreaWrite):
     finally:
         if "connection" in locals():
             await connection.close()
+
+
+@router.get("/areas/import-template", dependencies=[Depends(require_permission("risk.create"))])
+async def download_area_import_template():
+    content = build_area_template()
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=petroshield-area-import-template.xlsx"},
+    )
+
+
+@router.post("/areas/import", dependencies=[Depends(require_permission("risk.create"))])
+async def import_areas(
+    mode: Literal["a", "w"] = Query(..., description="a 追加；w 覆盖"),
+    file: UploadFile = File(...),
+    user: dict = Depends(require_permission("risk.create")),
+):
+    if mode == "w" and "risk.delete" not in user["permissions"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="覆盖导入还需要 risk.delete 权限")
+    filename = file.filename or ""
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="仅支持 .xlsx 文件")
+    content = await file.read(MAX_FILE_SIZE + 1)
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="文件不能超过 5 MB")
+
+    try:
+        raw_areas = parse_area_workbook(content)
+        areas = [AreaWrite.model_validate(item) for item in raw_areas]
+        for area in areas:
+            validate_geometry(area)
+    except AreaExcelError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"message": "区域表格校验失败", "errors": exc.errors}) from exc
+    except ValidationError as exc:
+        errors = [{"row": None, "field": ".".join(str(part) for part in error["loc"]), "message": error["msg"]} for error in exc.errors()]
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"message": "区域表格校验失败", "errors": errors}) from exc
+
+    connection = await connect_database()
+    try:
+        async with connection.transaction():
+            existing_rows = await connection.fetch("select id, name from public.area for update")
+            existing_names = {row["name"] for row in existing_rows}
+            duplicate_names = sorted(existing_names.intersection(area.name for area in areas))
+            if mode == "a" and duplicate_names:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"message": "追加导入存在重名区域", "errors": [{"row": None, "field": "区域名称", "message": f"已存在：{'、'.join(duplicate_names[:20])}"}]},
+                )
+
+            removed_count = 0
+            if mode == "w":
+                removed_count = len(existing_rows)
+                if existing_names:
+                    await connection.execute(
+                        "update public.person set location_zone = null where location_zone = any($1::text[])",
+                        list(existing_names),
+                    )
+                await connection.execute("update public.device set region_id = null where region_id is not null")
+                await connection.execute("delete from public.area")
+
+            imported_ids = [await insert_area(connection, area) for area in areas]
+        return {
+            "mode": mode,
+            "imported_count": len(imported_ids),
+            "removed_count": removed_count,
+            "area_ids": imported_ids,
+            "message": f"已{'覆盖' if mode == 'w' else '追加'}导入 {len(imported_ids)} 个区域",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Failed to import risk areas: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="区域导入失败，数据库未发生变更") from exc
+    finally:
+        await connection.close()
 
 
 @router.put("/areas/{area_id}", dependencies=[Depends(require_permission("risk.edit"))])

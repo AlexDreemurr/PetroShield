@@ -235,6 +235,14 @@ OPERATION_DOCS: dict[tuple[str, str], dict[str, Any]] = {
         "创建风险区域", "创建多边形或圆形电子围栏。多边形至少 3 个点；圆形必须提供中心和正半径。",
         permission="risk.create", request_examples=AREA_REQUEST, response_status="201", response_example={"id": "area-example", "name": "一号罐区", "type": "danger", "risk_level": "high", "shape": "polygon", "enabled": True}, errors=(401, 403, 422, 503),
     ),
+    ("get", "/api/v1/risk-control/areas/import-template"): _doc(
+        "下载区域导入模板", "生成标准 .xlsx 模板，包含区域数据、填写示例和填写说明三个工作表。",
+        permission="risk.create", response_description="Excel 模板文件", errors=(401, 403, 503),
+    ),
+    ("post", "/api/v1/risk-control/areas/import"): _doc(
+        "批量导入风险区域", "读取 multipart/form-data 中的 .xlsx 文件。a 模式保留现有区域并追加；w 模式在单一数据库事务中解除旧关联、删除现有区域并按新表重建。整表校验或任意写入失败时全部回滚。",
+        permission="risk.create；w 模式还需要 risk.delete", parameters={"mode": "导入模式：a 表示追加，w 表示覆盖。"}, response_example={"mode": "a", "imported_count": 3, "removed_count": 0, "area_ids": ["area-1", "area-2", "area-3"], "message": "已追加导入 3 个区域"}, errors=(401, 403, 409, 413, 422, 503),
+    ),
     ("put", "/api/v1/risk-control/areas/{area_id}"): _doc(
         "修改风险区域", "整体替换区域几何、风险级别、负责人和告警规则。请求体字段与创建接口一致。",
         permission="risk.edit", parameters={"area_id": "风险区域唯一编号。"}, request_examples=AREA_REQUEST, response_example={"id": "area-example", "name": "一号罐区", "risk_level": "high", "enabled": True}, errors=(401, 403, 404, 422, 503),

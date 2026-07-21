@@ -6,6 +6,8 @@ import {
   Check,
   Circle,
   Cpu,
+  Download,
+  FileSpreadsheet,
   MapPin,
   MapPinned,
   MousePointer2,
@@ -19,6 +21,7 @@ import {
   SlidersHorizontal,
   Timer,
   Trash2,
+  Upload,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -55,6 +58,104 @@ const PRIORITY_VALUES = {
   高: "high",
   紧急: "urgent",
 };
+
+const IMPORT_FIELDS = [
+  ["区域名称*", "是", "最多 100 字；追加模式下不能与现有区域重名"],
+  ["区域类型*", "是", "危险 / 限制 / 禁入 / 普通"],
+  ["风险等级*", "是", "低 / 中 / 高"],
+  ["图形类型*", "是", "多边形 / 圆形"],
+  ["多边形坐标", "多边形", "x,y;x,y;x,y，至少 3 个点"],
+  ["圆心X、圆心Y、半径(米)", "圆形", "均为数字，半径必须大于 0"],
+  ["是否启用*", "是", "是 / 否"],
+  ["负责人、责任部门", "否", "文本；可留空"],
+  ["越界告警*、停留告警*、人数告警*", "是", "是 / 否"],
+  ["停留分钟", "启用停留告警", "大于等于 1 的整数"],
+  ["人数上限", "启用人数告警", "大于等于 0 的整数"],
+  ["处置优先级*", "是", "低 / 中 / 高 / 紧急"],
+];
+
+function AreaImportDialog({ canReplace, onClose, onImported }) {
+  const [mode, setMode] = useState("a");
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState([]);
+  const [message, setMessage] = useState("");
+
+  const downloadTemplate = async () => {
+    setMessage("");
+    try {
+      const response = await apiFetch(`${API_BASE_URL}/risk-control/areas/import-template`);
+      if (!response.ok) throw new Error("模板下载失败");
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "石安盾-区域导入模板.xlsx";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setMessage("模板下载失败，请检查后端服务");
+    }
+  };
+
+  const submit = async () => {
+    if (!file || busy || (mode === "w" && !canReplace)) return;
+    setBusy(true);
+    setErrors([]);
+    setMessage("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await apiFetch(`${API_BASE_URL}/risk-control/areas/import?mode=${mode}`, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = payload.detail;
+        setErrors(typeof detail === "object" ? detail.errors ?? [] : []);
+        throw new Error(typeof detail === "object" ? detail.message : detail || "区域导入失败");
+      }
+      await onImported(payload);
+    } catch (error) {
+      setMessage(error.message || "区域导入失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <DialogBackdrop role="presentation" onMouseDown={() => !busy && onClose()}>
+      <ImportDialog role="dialog" aria-modal="true" aria-labelledby="area-import-title" onMouseDown={(event) => event.stopPropagation()}>
+        <ImportHeader>
+          <div><FileSpreadsheet size={19} /><span><h2 id="area-import-title">批量导入区域</h2><p>使用平台模板填写，系统会在写入前校验整张表格</p></span></div>
+          <DialogCancel type="button" onClick={onClose} disabled={busy}>关闭</DialogCancel>
+        </ImportHeader>
+        <ImportBody>
+          <ImportSection>
+            <ImportSectionTitle>导入方式</ImportSectionTitle>
+            <ModeSelector>
+              <ModeButton type="button" $active={mode === "a"} onClick={() => setMode("a")}><strong>a · 追加</strong><span>保留现有区域，在其基础上新增</span></ModeButton>
+              <ModeButton type="button" $active={mode === "w"} $danger onClick={() => canReplace && setMode("w")} disabled={!canReplace}><strong>w · 覆盖</strong><span>{canReplace ? "删除现有区域，全部按新表重建" : "需要区域删除权限"}</span></ModeButton>
+            </ModeSelector>
+            {mode === "w" ? <ReplaceWarning>覆盖导入成功后，人员与设备会解除旧区域关联；历史告警记录仍会保留。若任意一行校验或写入失败，现有区域不会被删除。</ReplaceWarning> : null}
+          </ImportSection>
+          <ImportSection>
+            <FormatHeading><ImportSectionTitle>表格规定格式</ImportSectionTitle><TemplateButton type="button" onClick={downloadTemplate}><Download size={14} />下载 Excel 模板</TemplateButton></FormatHeading>
+            <FormatNote>仅支持 `.xlsx`，文件不超过 5 MB、最多 500 个区域。必须在“区域数据”工作表填写，不能修改带 * 的表头。</FormatNote>
+            <FormatTableWrap><FormatTable><thead><tr><th>字段</th><th>何时必填</th><th>格式与允许值</th></tr></thead><tbody>{IMPORT_FIELDS.map(([name, required, rule]) => <tr key={name}><td>{name}</td><td>{required}</td><td>{rule}</td></tr>)}</tbody></FormatTable></FormatTableWrap>
+          </ImportSection>
+          <ImportSection>
+            <ImportSectionTitle>选择文件</ImportSectionTitle>
+            <FilePicker $selected={Boolean(file)}><Upload size={18} /><span><strong>{file?.name ?? "选择区域 Excel 文件"}</strong><small>{file ? `${(file.size / 1024).toFixed(1)} KB` : "点击选择 .xlsx 文件"}</small></span><input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { const selected = event.target.files?.[0] ?? null; setFile(selected); setErrors([]); setMessage(""); }} /></FilePicker>
+            {message ? <ImportMessage $error>{message}</ImportMessage> : null}
+            {errors.length ? <ImportErrors>{errors.slice(0, 10).map((error, index) => <li key={`${error.row}-${index}`}><b>{error.row ? `第 ${error.row} 行` : error.field || "文件"}</b><span>{error.message}</span></li>)}</ImportErrors> : null}
+          </ImportSection>
+        </ImportBody>
+        <ImportFooter><span>导入前建议下载最新模板</span><DialogCancel type="button" onClick={onClose} disabled={busy}>取消</DialogCancel><ImportConfirm type="button" $danger={mode === "w"} disabled={!file || busy || (mode === "w" && !canReplace)} onClick={submit}>{busy ? "正在校验并导入..." : mode === "w" ? "确认覆盖导入" : "确认追加导入"}</ImportConfirm></ImportFooter>
+      </ImportDialog>
+    </DialogBackdrop>
+  );
+}
 
 function normalizeApiArea(item) {
   return {
@@ -162,6 +263,7 @@ function RiskControl() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [draftPointCount, setDraftPointCount] = useState(0);
   const [confirmDrawToken, setConfirmDrawToken] = useState(0);
   const [managerOptions, setManagerOptions] = useState([]);
@@ -408,6 +510,25 @@ function RiskControl() {
     setDraftPointCount(count);
   }, []);
 
+  const handleAreasImported = async (result) => {
+    invalidateCachedJson(PAGE_DATA_URLS.areas);
+    try {
+      const payload = await loadCachedJson(PAGE_DATA_URLS.areas, { force: true });
+      const nextAreas = (payload.items ?? []).map(normalizeApiArea);
+      setAreas(nextAreas);
+      setManagerOptions(payload.managers ?? []);
+      setSelectedAreaId(nextAreas[0]?.id ?? null);
+      setDraft(nextAreas[0] ?? null);
+      setHasAreaLoadError(false);
+      setSavedMessage(result.message ?? `已导入 ${result.imported_count} 个区域`);
+    } catch {
+      setHasAreaLoadError(true);
+      setSavedMessage("区域导入成功，列表刷新失败，请稍后重新进入页面");
+    } finally {
+      setImportDialogOpen(false);
+    }
+  };
+
   return (
     <Wrapper>
       <PageHeader>
@@ -434,6 +555,9 @@ function RiskControl() {
               <option key={item.code} value={item.value}>{item.name}</option>
             ))}
           </TypeSelect>
+          <ImportButton type="button" disabled={isLoadingAreas || !hasPermission("risk.create")} onClick={() => setImportDialogOpen(true)} title={!hasPermission("risk.create") ? "当前角色无新增权限" : undefined}>
+            <Upload size={15} /> 批量导入
+          </ImportButton>
           <PrimaryButton type="button" disabled={isLoadingAreas || hasAreaLoadError || !hasPermission("risk.create")} onClick={() => startDrawing("polygon")} title={!hasPermission("risk.create") ? "当前角色无新增权限" : undefined}>
             <Plus size={15} /> 新增区域
           </PrimaryButton>
@@ -637,6 +761,13 @@ function RiskControl() {
           </DeleteDialog>
         </DialogBackdrop>
       ) : null}
+      {importDialogOpen ? (
+        <AreaImportDialog
+          canReplace={hasPermission("risk.delete")}
+          onClose={() => setImportDialogOpen(false)}
+          onImported={handleAreasImported}
+        />
+      ) : null}
     </Wrapper>
   );
 }
@@ -706,6 +837,7 @@ const PrimaryButton = styled.button`
   &:hover { background: hsl(220 90% 44%); }
   &:disabled { color: hsl(218 10% 68%); background: hsl(220 13% 88%); cursor: not-allowed; }
 `;
+const ImportButton = styled(PrimaryButton)`border: 1px solid hsl(217 91% 72%); color: ${COLORS.blue}; background: white; &:hover { background: hsl(214 100% 97%); }`;
 
 const MetricGrid = styled.div`display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;`;
 const Metric = styled.article`
@@ -863,5 +995,23 @@ const DialogCopy = styled.div`min-width: 0; h2 { color: hsl(218 20% 18%); font-s
 const DialogActions = styled.div`grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;`;
 const DialogCancel = styled(FooterButton)`border: 1px solid hsl(220 13% 84%); color: hsl(218 12% 32%); background: white;`;
 const DialogConfirm = styled(FooterButton)`border: 1px solid #dc2626; color: white; background: #dc2626;`;
+const ImportDialog = styled.section`width: min(900px, calc(100vw - 80px)); max-height: calc(100vh - 72px); display: grid; grid-template-rows: 64px minmax(0, 1fr) 58px; border-radius: 8px; background: white; box-shadow: 0 24px 70px hsl(218 35% 10% / 0.3); overflow: hidden;`;
+const ImportHeader = styled.header`display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid hsl(220 13% 89%); padding: 0 20px; > div { display: flex; align-items: center; gap: 10px; color: ${COLORS.blue}; } span { display: grid; gap: 3px; } h2 { margin: 0; color: hsl(218 20% 18%); font-size: 0.9375rem; } p { color: hsl(218 10% 48%); font-size: 0.6875rem; }`;
+const ImportBody = styled.div`min-height: 0; overflow-y: auto; padding: 16px 20px;`;
+const ImportSection = styled.section`& + & { margin-top: 18px; padding-top: 16px; border-top: 1px solid hsl(220 13% 91%); }`;
+const ImportSectionTitle = styled.h3`margin: 0; color: hsl(218 18% 22%); font-size: 0.75rem;`;
+const ModeSelector = styled.div`display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 9px;`;
+const ModeButton = styled.button`min-height: 58px; display: grid; gap: 5px; border: 1px solid ${(p) => p.$active ? (p.$danger ? "#ef4444" : COLORS.blue) : "hsl(220 13% 85%)"}; border-radius: 6px; padding: 9px 12px; text-align: left; color: ${(p) => p.$active ? (p.$danger ? "#b91c1c" : COLORS.blue) : "hsl(218 14% 30%)"}; background: ${(p) => p.$active ? (p.$danger ? "#fff7f7" : "hsl(214 100% 97%)") : "white"}; cursor: pointer; strong { font-size: 0.75rem; } span { color: hsl(218 10% 48%); font-size: 0.65625rem; } &:disabled { opacity: 0.55; cursor: not-allowed; }`;
+const ReplaceWarning = styled.p`margin-top: 9px; border-left: 3px solid #ef4444; padding: 7px 10px; color: #991b1b; background: #fff7f7; font-size: 0.6875rem; line-height: 1.55;`;
+const FormatHeading = styled.div`display: flex; align-items: center; justify-content: space-between; gap: 12px;`;
+const TemplateButton = styled.button`height: 30px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid hsl(217 91% 72%); border-radius: 5px; padding: 0 10px; color: ${COLORS.blue}; background: white; font-size: 0.6875rem; cursor: pointer;`;
+const FormatNote = styled.p`margin-top: 7px; color: hsl(218 10% 45%); font-size: 0.6875rem; line-height: 1.5;`;
+const FormatTableWrap = styled.div`margin-top: 9px; border: 1px solid hsl(220 13% 88%); border-radius: 6px; overflow: hidden;`;
+const FormatTable = styled.table`width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.65625rem; th { height: 30px; padding: 0 9px; text-align: left; color: hsl(218 10% 42%); background: hsl(216 28% 97%); } td { height: 29px; padding: 5px 9px; border-top: 1px solid hsl(220 13% 91%); line-height: 1.35; } th:nth-child(1) { width: 28%; } th:nth-child(2) { width: 18%; } td:nth-child(1) { color: hsl(218 18% 24%); font-weight: 600; }`;
+const FilePicker = styled.label`position: relative; min-height: 62px; display: flex; align-items: center; gap: 10px; margin-top: 9px; border: 1px dashed ${(p) => p.$selected ? COLORS.blue : "hsl(220 13% 76%)"}; border-radius: 6px; padding: 10px 13px; color: ${(p) => p.$selected ? COLORS.blue : "hsl(218 10% 45%)"}; background: ${(p) => p.$selected ? "hsl(214 100% 98%)" : "hsl(216 28% 98%)"}; cursor: pointer; span { display: grid; gap: 4px; } strong { color: hsl(218 18% 24%); font-size: 0.75rem; } small { font-size: 0.65625rem; } input { position: absolute; width: 1px; height: 1px; opacity: 0; }`;
+const ImportMessage = styled.p`margin-top: 8px; color: ${(p) => p.$error ? "#b91c1c" : "#047857"}; font-size: 0.6875rem;`;
+const ImportErrors = styled.ul`max-height: 120px; margin: 8px 0 0; overflow-y: auto; border: 1px solid hsl(0 72% 88%); border-radius: 5px; padding: 5px 10px; background: #fffafa; list-style: none; li { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; padding: 5px 0; color: #991b1b; font-size: 0.65625rem; } li + li { border-top: 1px solid hsl(0 60% 92%); }`;
+const ImportFooter = styled.footer`display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid hsl(220 13% 89%); padding: 0 20px; span { margin-right: auto; color: hsl(218 10% 48%); font-size: 0.65625rem; }`;
+const ImportConfirm = styled(FooterButton)`border: 1px solid ${(p) => p.$danger ? "#dc2626" : COLORS.blue}; color: white; background: ${(p) => p.$danger ? "#dc2626" : COLORS.blue}; &:disabled { border-color: hsl(220 10% 80%); color: hsl(218 10% 58%); background: hsl(220 13% 92%); cursor: not-allowed; }`;
 
 export default RiskControl;
