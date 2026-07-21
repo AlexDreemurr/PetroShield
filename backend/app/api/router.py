@@ -10,6 +10,7 @@ from app.api.routes import (
     risk_control,
     statistics,
     system_management,
+    video_ai,
 )
 from app.security import require_permission
 
@@ -60,6 +61,13 @@ api_router.include_router(
     prefix="/alarms",
     tags=["告警中心"],
     dependencies=[Depends(require_permission("alarms.view"))],
+)
+
+api_router.include_router(
+    video_ai.router,
+    prefix="/video-ai",
+    tags=["视频AI"],
+    dependencies=[Depends(require_permission("video.view"))],
 )
 
 api_router.include_router(

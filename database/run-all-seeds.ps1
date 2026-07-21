@@ -141,8 +141,15 @@ $seedFiles = @(
   'seed_person_health.sql',
   'seed_device_realtime_observation.sql',
   'seed_device_maintenance_records.sql',
+  'seed_video_ai.sql',
   'verify_seed_last_7_days.sql'
 )
+
+$videoSeedIndex = [Array]::IndexOf($seedFiles, 'seed_video_ai.sql')
+$verificationIndex = [Array]::IndexOf($seedFiles, 'verify_seed_last_7_days.sql')
+if ($videoSeedIndex -lt 0 -or $verificationIndex -lt 0 -or $videoSeedIndex -gt $verificationIndex) {
+  throw 'Video AI seed must be included before the final seed verification.'
+}
 
 foreach ($seedFile in $seedFiles) {
   $seedPath = Join-Path $seedRoot $seedFile

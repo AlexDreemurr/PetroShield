@@ -61,6 +61,7 @@ export const PAGE_DATA_URLS = {
   areas: `${API_BASE_URL}/risk-control/overview`,
   statistics7Days: `${API_BASE_URL}/statistics/overview?days=7`,
   riskEvents: `${API_BASE_URL}/statistics/risk-events`,
+  videoAI: `${API_BASE_URL}/video-ai/overview`,
 };
 
 let warmPromise = null;
@@ -74,6 +75,7 @@ export function warmApplicationPages() {
     loadCachedJson(PAGE_DATA_URLS.areas),
     loadCachedJson(PAGE_DATA_URLS.statistics7Days),
     loadCachedJson(PAGE_DATA_URLS.riskEvents),
+    loadCachedJson(PAGE_DATA_URLS.videoAI),
     warmAlarmCenter([]),
   ]).finally(() => {
     warmPromise = null;

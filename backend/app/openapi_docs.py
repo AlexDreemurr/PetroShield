@@ -41,6 +41,7 @@ OPENAPI_TAGS = [
     {"name": "人员管理", "description": "人员档案、实时位置、区域归属和移动轨迹。"},
     {"name": "设备管理", "description": "设备台账、实时状态、维保合规及设备告警。"},
     {"name": "风险管控", "description": "电子围栏、风险区域及区域规则配置。"},
+    {"name": "视频AI", "description": "摄像头通道、多模态媒体识别、疑似事件复核与传感器异常预测。"},
     {"name": "告警中心", "description": "告警检索、详情查看、派单、反馈、复核和关闭。"},
     {"name": "统计分析", "description": "风险态势统计及风险事件全过程追溯。"},
     {"name": "系统管理", "description": "用户、角色权限、数据字典和操作日志。"},
@@ -270,6 +271,27 @@ OPERATION_DOCS: dict[tuple[str, str], dict[str, Any]] = {
         permission="按 action 分别校验 alarms.confirm / alarms.dispatch / alarms.close", parameters={"alarm_id": "告警唯一编号。"}, request_examples=ALARM_ACTION_EXAMPLES,
         response_example={"id": "alarm-trend-022", "status": "处理中", "assignment": {"assignee_id": "person-001", "priority": "urgent", "status": "assigned"}, "action_logs": [{"action": "dispatch", "from_status": "确认", "to_status": "处理中"}]}, errors=(401, 403, 404, 409, 422, 503),
     ),
+    ("get", "/api/v1/video-ai/overview"): _doc(
+        "获取视频AI融合总览",
+        "返回摄像头通道、最近识别事件、近24小时识别统计、设备异常预测和最新融合结果。接口只返回模型是否已配置，不回显任何密钥。",
+        permission="video.view",
+        response_example={"provider": {"name": "dashscope", "model": "qwen3-vl-flash", "configured": True}, "cameras": [{"id": "video-camera-1", "name": "一号罐区摄像机", "area_name": "一号罐区", "status": "online", "preview_url": "/demo/video-ai/camera-sprite.png"}], "events": [{"id": "video-event-example", "event_type": "未佩戴安全帽", "category": "person", "risk_level": "严重", "status": "suspected", "confidence": 0.926, "summary": "作业人员未佩戴安全帽", "detected_at": "2026-07-21T13:45:12+08:00"}], "statistics": [{"category": "person", "event_type": "未佩戴安全帽", "count": 8}], "predictions": [], "fusion": None},
+        errors=(401, 403, 503),
+    ),
+    ("post", "/api/v1/video-ai/analyze"): _doc(
+        "上传媒体并执行安全识别",
+        "使用 `multipart/form-data` 上传一个媒体文件。`file` 支持 JPG、PNG、WebP（最大10MB）及 MP4、MOV、WebM（最大20MB）；`camera_id` 可选，用于关联摄像头和风险区域。每次调用都会记录推理审计任务；仅当模型判断存在明确异常时创建疑似事件，不会直接创建正式告警。",
+        permission="video.analyze",
+        parameters={},
+        response_example={"job_id": "job-example", "event_id": "event-example", "result": {"abnormal": True, "event_type": "区域入侵", "category": "person", "risk_level": "严重", "confidence": 0.91, "summary": "人员进入限制区域", "objects": [{"label": "person", "confidence": 0.94, "bbox": [0.25, 0.18, 0.62, 0.88]}], "evidence_notes": ["人员位于警戒线内"], "suggested_actions": ["通知现场安全员复核"]}, "latency_ms": 3840, "model": "qwen3-vl-flash"},
+        errors=(401, 403, 413, 422, 503),
+    ),
+    ("post", "/api/v1/video-ai/events/{event_id}/promote"): _doc(
+        "将疑似事件转为正式告警",
+        "人工复核后把视频AI疑似事件写入告警中心，并回填关联告警编号。重复调用具有幂等性：已关联时返回原告警，不重复创建。",
+        permission="video.promote", parameters={"event_id": "视频AI疑似事件编号。"},
+        response_example={"alarm_id": "alarm-example", "created": True}, errors=(401, 403, 404, 503),
+    ),
     ("get", "/api/v1/statistics/risk-events"): _doc(
         "获取风险事件追溯数据", "返回风险事件列表、相关区域和主体轨迹，用于事件地图回放、里程碑及责任链展示。",
         permission="statistics.view", response_example={"items": [{"id": "alarm-trend-022", "name": "人员进入危险区域", "level": "严重", "status": "关闭", "start_time": "2026-07-19T10:32:15+08:00", "person": {"id": "person-001", "name": "张伟"}, "area": {"id": "area-example", "name": "一号罐区"}, "track": [{"x": 121.491, "y": 31.238, "time": "2026-07-19T10:30:00+08:00"}]}], "areas": []}, errors=(401, 403, 503),
@@ -343,6 +365,7 @@ ERROR_RESPONSES: dict[int, dict[str, Any]] = {
     403: {"description": "当前角色缺少所需权限", "content": {"application/json": {"example": {"detail": "缺少权限：alarms.confirm"}}}},
     404: {"description": "指定资源不存在", "content": {"application/json": {"example": {"detail": "Resource not found"}}}},
     409: {"description": "资源冲突或当前业务状态不允许该操作", "content": {"application/json": {"example": {"detail": "当前状态不允许执行该操作，请刷新后重试"}}}},
+    413: {"description": "上传的媒体文件超过接口大小限制", "content": {"application/json": {"example": {"detail": "video文件过大"}}}},
     422: {"description": "请求参数格式错误或未通过业务校验", "content": {"application/json": {"examples": {"validation": {"summary": "字段校验失败", "value": {"detail": [{"loc": ["body", "name"], "msg": "Field required", "type": "missing"}]}}, "business": {"summary": "业务校验失败", "value": {"detail": "开始日期不得晚于结束日期"}}}}}},
     503: {"description": "数据库、AI 服务或其他后端依赖暂时不可用", "content": {"application/json": {"example": {"detail": "Service temporarily unavailable"}}}},
 }

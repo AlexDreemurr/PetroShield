@@ -369,6 +369,7 @@ sql_paths = [
   "./seeds/seed_alarm_workflow.sql",
   "./seeds/seed_person_health.sql",
   "./seeds/seed_device_realtime_observation.sql",
+  "./seeds/seed_video_ai.sql",
   "./seeds/verify_seed_last_7_days.sql"
 ]
 ```
@@ -382,6 +383,7 @@ sql_paths = [
 - `seed_alarm_workflow.sql`：为滚动告警补齐确认、派单、反馈、建议和操作日志。
 - `seed_person_health.sql`：生成 50 人乘 7 天，共 350 条人员健康观测。
 - `seed_device_realtime_observation.sql`：生成 16 台设备乘 7 天，共 112 条设备状态观测。
+- `seed_video_ai.sql`：绑定现有摄像头设备与现有风险区域，生成 24 条滚动视频AI疑似事件和设备异常预测；演示画面来自前端本地素材。
 - `verify_seed_last_7_days.sql`：校验数量、时间窗口、实时快照及人员/设备/告警区域归属；失败时让统一事务回滚。
 
 Windows 一键入口为 `database/run-all-seeds.cmd`，实现位于 `database/run-all-seeds.ps1`。默认读取 `backend/.env` 的数据库连接，以北京时间今天为锚点；也支持 `-AnchorDate YYYY-MM-DD`、`-Local`、`-Linked`。入口按 PostgreSQL 语法拆分 seed，再封装为一个服务器端 `DO` 命令，以兼容 Supabase CLI 不接受 prepared statement 内含多条命令的限制；整个 `DO` 原子执行。脚本只清理固定 seed ID 或 seed 标记的数据，不按日期范围删除真实记录。详细用法见 `database/README.md`。
@@ -393,7 +395,31 @@ Windows 一键入口为 `database/run-all-seeds.cmd`，实现位于 `database/ru
 
 这些 backfill 不由 `db reset` 自动执行；用于远端已有数据迁移后的手动补齐。
 
-## 9. 常见问题与排查
+## 9. 视频AI融合
+
+视频AI页面已从占位页升级为可运行的一期链路：
+
+1. `GET /api/v1/video-ai/overview` 返回摄像头、识别事件、识别统计、传感器异常预测和融合摘要。
+2. `POST /api/v1/video-ai/analyze` 接收 JPG、PNG、WebP、MP4、MOV、WebM，通过阿里云百炼兼容接口调用通义千问视觉模型。
+3. 模型异常结果写入 `video_ai_event`，状态默认为 `suspected`，不会自动成为正式告警。
+4. 管理员人工复核后调用 `POST /api/v1/video-ai/events/{event_id}/promote`，才会写入 `alarm` 并跳转告警中心。
+5. 每次模型调用均写入 `video_ai_inference_job`，包括模型、延迟、状态、响应或错误，便于审计与排障。
+
+新增数据表：`video_camera_channel`、`video_ai_inference_job`、`video_ai_event`、`sensor_anomaly_prediction`。迁移文件是 `database/supabase/migrations/20260721000100_add_video_ai.sql`。
+
+后端环境变量：
+
+```env
+DASHSCOPE_API_KEY=
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+VIDEO_AI_VISION_MODEL=qwen3-vl-flash
+VIDEO_AI_VIDEO_FPS=0.5
+VIDEO_AI_TIMEOUT_SECONDS=90
+```
+
+一期仅处理管理员上传的本地媒体，不直接拉取 RTSP。上传文件当前只发送给模型并保存文件名、MIME、模型结果等证据元数据，不永久保存原始二进制；接真实摄像头时需再增加抽帧任务、对象存储和媒体保留策略。
+
+## 10. 常见问题与排查
 
 ### Docker / Supabase 本地 reset
 
@@ -433,7 +459,7 @@ PowerShell `Get-Content` 可能显示乱码，不一定代表 UTF-8 源文件损
 
 不要因为终端乱码就大面积重写中文。
 
-## 10. 协作与操作边界
+## 11. 协作与操作边界
 
 后续 Codex 必须遵守：
 
@@ -446,7 +472,7 @@ PowerShell `Get-Content` 可能显示乱码，不一定代表 UTF-8 源文件损
 7. 真实密钥、数据库连接串、百度地图 AK 不写入文档和最终回复。
 8. 涉及数据库 schema/seed 时，同步考虑迁移、seed、backfill、后端查询和前端消费。
 
-## 11. 新会话接手清单
+## 12. 新会话接手清单
 
 新的 Codex 会话开始时建议：
 
@@ -467,7 +493,7 @@ npm run build
 8. 后端改动至少做语法/导入检查；如用 `py_compile` 生成 `__pycache__`，结束前清理或不要提交。
 9. 最终回复说明改了哪些文件、验证结果、是否需要用户执行 seed/部署。
 
-## 12. 文档维护规则
+## 13. 文档维护规则
 
 出现以下变化时同步更新本文件：
 

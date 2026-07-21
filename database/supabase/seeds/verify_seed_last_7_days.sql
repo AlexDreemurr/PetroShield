@@ -146,6 +146,22 @@ begin
   ) then
     raise exception 'Position seed contains rows outside the rolling 7-day window.';
   end if;
+
+  if (select count(*) from public.video_camera_channel where metadata ->> 'seed_source' = 'seed_video_ai.sql') = 0 then
+    raise exception 'Video AI seed did not create any camera channel. Check that camera devices exist.';
+  end if;
+
+  if (select count(*) from public.video_ai_event where evidence ->> 'seed_source' = 'seed_video_ai.sql') <> 24 then
+    raise exception 'Video AI event count mismatch: expected 24.';
+  end if;
+
+  if exists (
+    select 1 from public.video_ai_event
+    where evidence ->> 'seed_source' = 'seed_video_ai.sql'
+      and (detected_at < window_start or detected_at >= window_end)
+  ) then
+    raise exception 'Video AI seed contains events outside the rolling 7-day window.';
+  end if;
 end;
 $$;
 
@@ -184,4 +200,6 @@ select
     select count(*)
     from public.device_maintenance_record
     where seed_source = 'seed_device_maintenance_records.sql'
-  ) as device_maintenance_records;
+  ) as device_maintenance_records,
+  (select count(*) from public.video_ai_event where evidence ->> 'seed_source' = 'seed_video_ai.sql') as video_ai_events,
+  (select count(*) from public.sensor_anomaly_prediction where metadata ->> 'seed_source' = 'seed_video_ai.sql') as anomaly_predictions;
